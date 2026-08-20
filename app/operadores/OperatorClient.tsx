@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 const INGRESO_ID = "75942fa8-9bea-4207-93a8-fe4c53484500";
 
-type Turn = { id:string; visible_number:string; category:string; status?:string; wait_minutes?:number; created_at?:string };
+type Turn = { id:string; visible_number:string; category:string; category_id?:string; status?:string; wait_minutes?:number; created_at?:string };
 type Box = { id:string; name:string; code:string; active:boolean; turn?: Turn | null };
 type Category = { id:string; name:string; prefix:string; waiting:number; oldest_wait_minutes:number };
 type Dashboard = {
@@ -23,6 +23,8 @@ export default function OperatorClient(){
   const [data,setData]=useState<Dashboard|null>(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [transferCategory,setTransferCategory]=useState("");
+  const [transferBox,setTransferBox]=useState("");
 
   const load = useCallback(async (selectedBox=boxId) => {
     const qs=new URLSearchParams({sectorId:INGRESO_ID});
@@ -55,25 +57,64 @@ export default function OperatorClient(){
 
   async function chooseBox(id:string){ setBoxId(id); setError(""); try{await load(id);}catch(e){setError(e instanceof Error?e.message:"No se pudo seleccionar el box");} }
 
+  async function post(url:string,body:Record<string,unknown>){
+    const res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const json=await res.json();
+    if(!res.ok||!json.ok) throw new Error(json.error||"No se pudo ejecutar la operación");
+    return json.data;
+  }
+
   async function callNext(){
     if(!boxId){setError("Seleccioná un box antes de llamar");return;}
     setLoading(true);setError("");
     try{
-      const res=await fetch("/api/operator/call-next",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sectorId:INGRESO_ID,servicePointId:boxId})});
-      const json=await res.json(); if(!res.ok||!json.ok) throw new Error(json.error||"No se pudo llamar");
-      if(json.data===null) setError("No hay turnos esperando");
+      const result=await post("/api/operator/call-next",{sectorId:INGRESO_ID,servicePointId:boxId});
+      if(result===null) setError("No hay turnos esperando");
       await load(boxId);
     }catch(e){setError(e instanceof Error?e.message:"No se pudo llamar");}finally{setLoading(false);}
+  }
+
+  async function callCategory(categoryId:string){
+    if(!boxId){setError("Seleccioná un box antes de llamar");return;}
+    setLoading(true);setError("");
+    try{
+      const result=await post("/api/operator/call-category",{sectorId:INGRESO_ID,categoryId,servicePointId:boxId});
+      if(result===null) setError("No hay turnos esperando en esa categoría");
+      await load(boxId);
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo llamar por categoría");}finally{setLoading(false);}
+  }
+
+  async function callSpecific(turnId:string){
+    if(!boxId){setError("Seleccioná un box antes de llamar");return;}
+    setLoading(true);setError("");
+    try{
+      await post("/api/operator/call-specific",{turnId,servicePointId:boxId});
+      await load(boxId);
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo llamar el turno");}finally{setLoading(false);}
   }
 
   async function action(actionName:string){
     if(!data?.current?.id) return;
     setLoading(true);setError("");
     try{
-      const res=await fetch("/api/operator/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({turnId:data.current.id,action:actionName})});
-      const json=await res.json();if(!res.ok||!json.ok)throw new Error(json.error||"No se pudo ejecutar la acción");
+      await post("/api/operator/action",{turnId:data.current.id,action:actionName});
       await load(boxId);
     }catch(e){setError(e instanceof Error?e.message:"No se pudo ejecutar la acción");}finally{setLoading(false);}
+  }
+
+  async function transfer(){
+    if(!data?.current?.id) return;
+    if(!transferCategory&&!transferBox){setError("Elegí una categoría o un box de destino");return;}
+    setLoading(true);setError("");
+    try{
+      await post("/api/operator/transfer",{
+        turnId:data.current.id,
+        targetCategoryId:transferCategory||null,
+        targetServicePointId:transferBox||null,
+      });
+      setTransferCategory("");setTransferBox("");
+      await load(boxId);
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo transferir el turno");}finally{setLoading(false);}
   }
 
   if(!loggedIn){
@@ -106,8 +147,8 @@ export default function OperatorClient(){
       <section className="card span4"><div className="muted">Boxes activos</div><div className="metric">{data?.boxes?.length??0} / 13</div></section>
 
       <section className="card span8"><h2>Cola real</h2>
-        <div className="category-summary">{data?.categories?.map(c=><span className="pill" key={c.id}>{c.prefix}: {c.waiting}</span>)}</div>
-        <div className="queue" style={{marginTop:16}}>{data?.waiting?.length?data.waiting.map(t=><div className="row" key={t.id}><div className="number">{t.visible_number}</div><div>{t.category}</div><div>{t.wait_minutes??0} min</div><div>En espera</div></div>):<p className="muted">No hay turnos esperando.</p>}</div>
+        <div className="category-summary">{data?.categories?.map(c=><button className="pill" style={{border:0,cursor:"pointer"}} key={c.id} disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c.id)}>{c.prefix}: {c.waiting} · llamar</button>)}</div>
+        <div className="queue" style={{marginTop:16}}>{data?.waiting?.length?data.waiting.map(t=><div className="row" key={t.id}><div className="number">{t.visible_number}</div><div>{t.category}</div><div>{t.wait_minutes??0} min</div><div><button className="button secondary" style={{padding:"8px 10px"}} disabled={loading||!boxId||!!current} onClick={()=>callSpecific(t.id)}>Llamar</button></div></div>):<p className="muted">No hay turnos esperando.</p>}</div>
       </section>
 
       <section className="card span4"><span className="pill">Turno actual</span>
@@ -121,6 +162,18 @@ export default function OperatorClient(){
           <button className="button secondary" type="button" onClick={()=>action("absent")} disabled={loading||!current}>Ausente</button>
           <button className="button secondary" type="button" onClick={()=>action("cancel")} disabled={loading||!current}>Cancelar</button>
         </div>
+        {current&&<div style={{marginTop:18,paddingTop:18,borderTop:"1px solid var(--line)",display:"grid",gap:10}}>
+          <strong>Transferir turno</strong>
+          <select value={transferCategory} onChange={e=>setTransferCategory(e.target.value)}>
+            <option value="">Mantener categoría</option>
+            {data?.categories?.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}
+          </select>
+          <select value={transferBox} onChange={e=>setTransferBox(e.target.value)}>
+            <option value="">Sin box específico</option>
+            {data?.boxes?.filter(b=>b.id!==boxId).map(b=><option value={b.id} key={b.id}>{b.name}</option>)}
+          </select>
+          <button className="button secondary" type="button" onClick={transfer} disabled={loading||(!transferCategory&&!transferBox)}>Transferir</button>
+        </div>}
       </section>
     </div>
   </>;
