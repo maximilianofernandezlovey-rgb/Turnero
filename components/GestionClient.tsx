@@ -17,7 +17,6 @@ export default function GestionClient() {
   const [turn, setTurn] = useState<Turn | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedbackStatus,setFeedbackStatus]=useState<FeedbackStatus|null>(null);
-  const [feedbackPollError,setFeedbackPollError]=useState<string|null>(null);
   const [rating,setRating]=useState<number|null>(null);
   const [comment,setComment]=useState("");
   const [contactEmail,setContactEmail]=useState("");
@@ -38,20 +37,39 @@ export default function GestionClient() {
   }, []);
 
   useEffect(()=>{
+    const trackingCode = new URLSearchParams(window.location.search).get("trackingCode");
+    if(!trackingCode) return;
+    let active=true;
+    fetch(`/api/feedback/status?trackingCode=${encodeURIComponent(trackingCode)}&t=${Date.now()}`,{cache:"no-store"})
+      .then(async res=>{
+        const json=await res.json();
+        if(!res.ok||!json?.ok) throw new Error(json?.error||"No se pudo recuperar el turno");
+        if(!active) return;
+        const status=json.data as FeedbackStatus;
+        setFeedbackStatus(status);
+        setFeedbackSent(Boolean(status.submitted));
+        setTurn({visible_number:status.visible_number,tracking_code:trackingCode,status:status.status});
+      })
+      .catch(err=>active&&setError(err instanceof Error?err.message:"No se pudo recuperar el turno"));
+    return()=>{active=false;};
+  },[]);
+
+  useEffect(()=>{
     if(!turn?.tracking_code) return;
     let active=true;
     async function check(){
       try{
-        const res=await fetch(`/api/feedback/status?trackingCode=${encodeURIComponent(turn.tracking_code||"")}&t=${Date.now()}`,{cache:"no-store"});
+        const res=await fetch(`/api/feedback/status?trackingCode=${encodeURIComponent(turn.tracking_code||"")}&t=${Date.now()}`,{cache:"no-store",headers:{"Cache-Control":"no-cache"}});
         const json=await res.json();
         if(!res.ok||!json?.ok) throw new Error(json?.error||"No se pudo actualizar el estado");
         if(active){
-          setFeedbackPollError(null);
           setFeedbackStatus(json.data);
+          setTurn(prev=>prev?{...prev,status:json.data.status}:prev);
           if(json.data?.submitted) setFeedbackSent(true);
+          setError(null);
         }
       }catch(err){
-        if(active) setFeedbackPollError(err instanceof Error?err.message:"No se pudo actualizar el estado");
+        if(active) setError(err instanceof Error?`Seguimiento: ${err.message}`:"No se pudo actualizar el estado");
       }
     }
     check();
@@ -75,11 +93,7 @@ export default function GestionClient() {
     setError(null);
     setCreating(category.id);
     setFeedbackStatus(null);
-    setFeedbackPollError(null);
     setFeedbackSent(false);
-    setRating(null);
-    setComment("");
-    setContactEmail("");
     try {
       const response = await fetch("/api/turns/create", {
         method: "POST",
@@ -89,6 +103,11 @@ export default function GestionClient() {
       const data = await response.json();
       if (!response.ok || !data?.ok) throw new Error(data?.error || "No se pudo generar el turno");
       setTurn(data.turn);
+      if(data.turn?.tracking_code){
+        const url=new URL(window.location.href);
+        url.searchParams.set("trackingCode",data.turn.tracking_code);
+        window.history.replaceState({},"",url.toString());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo generar el turno");
     } finally {
@@ -114,16 +133,27 @@ export default function GestionClient() {
     finally{setSendingFeedback(false);}
   }
 
+  function goHome(){
+    setTurn(null);
+    setFeedbackStatus(null);
+    setFeedbackSent(false);
+    setRating(null);
+    setComment("");
+    setContactEmail("");
+    const url=new URL(window.location.href);
+    url.searchParams.delete("trackingCode");
+    window.history.replaceState({},"",url.toString());
+  }
+
   if (turn) {
-    const finished=feedbackStatus?.can_submit;
+    const finished=Boolean(feedbackStatus?.can_submit||turn.status==="finalizado");
     return <section className="ticket-card">
       <span className="eyebrow">Tu turno</span>
       <div className="ticket-number">{turn.visible_number || "Turno generado"}</div>
       {!finished&&<>
         <h2>Ya estás en la fila.</h2>
         <p className="lead">Conservá esta pantalla abierta. Cuando termine tu atención, acá mismo vas a poder dejar tu opinión.</p>
-        <p className="muted">Estado actual: <strong>{feedbackStatus?.status||"consultando…"}</strong></p>
-        {feedbackPollError&&<div className="error-box" style={{marginTop:12}}>No pudimos actualizar el estado: {feedbackPollError}</div>}
+        <p className="muted">Estado actual: <strong>{feedbackStatus?.status||turn.status||"esperando"}</strong></p>
       </>}
       {turn.tracking_code ? <p className="muted">Código de seguimiento: <strong>{turn.tracking_code}</strong></p> : null}
 
@@ -138,7 +168,8 @@ export default function GestionClient() {
 
       {finished&&feedbackSent&&<div className="notice" style={{marginTop:24,background:"#eefbf3",color:"#157347",borderColor:"#b8e0c7"}}><strong>Gracias por tu comentario.</strong><br/>La atención quedó registrada correctamente.</div>}
 
-      {(!finished||feedbackSent)&&<button className="primary-btn" style={{marginTop:20}} type="button" onClick={() => setTurn(null)}>Volver al inicio</button>}
+      {error&&!finished&&<div className="error-box" style={{marginTop:18}}>{error}</div>}
+      {(!finished||feedbackSent)&&<button className="primary-btn" style={{marginTop:20}} type="button" onClick={goHome}>Volver al inicio</button>}
     </section>;
   }
 
