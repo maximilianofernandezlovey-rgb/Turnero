@@ -1,65 +1,50 @@
 # Turnero UADE / Turnero Universitario Inteligente
 
-## Estado de este repositorio
+Repositorio oficial de reconstrucción y evolución del Turnero Universitario Inteligente.
 
-Este paquete es un **handoff inicial para GitHub y el Área de Sistemas**.
+## Estado actual
 
-**IMPORTANTE:** este ZIP NO contiene todavía el código fuente original correspondiente a:
+Este repositorio contiene una **base ejecutable en Next.js + TypeScript** preparada para Vercel. No es una extracción literal del código de `chatgpt.site`: es el nuevo baseline fuente, mantenible y versionado, construido a partir de la especificación funcional consolidada.
 
-`https://turnero-ingreso.maximilianofer790203.chatgpt.site/gestion`
+### Rutas disponibles
 
-Ese código debe recuperarse/exportarse desde el proyecto original y agregarse a este repositorio antes de comenzar modificaciones de producción.
+- `/gestion` — experiencia alumno / QR.
+- `/operadores` — panel operativo.
+- `/pantalla` — pantalla pública / TV.
+- `/totem` — tótem de autoservicio.
+- `/admin` — administración.
+- `/api/health` — health check.
 
-## Objetivo
+## Importante
 
-Centralizar en un único repositorio:
+Las interfaces ya son navegables y desplegables. Las operaciones sensibles todavía están deshabilitadas visualmente hasta conectar el backend real. No se presentan datos demo como si fueran producción.
 
-- Código fuente oficial.
-- Documentación funcional y técnica.
-- Migraciones de base de datos.
-- Tests.
-- Variables de entorno de ejemplo.
-- Historial de cambios mediante Git.
-- Integración futura con CI/CD y hosting.
+## Próxima etapa
 
-## Estructura
+1. Conectar PostgreSQL/Supabase.
+2. Implementar autenticación y RBAC.
+3. Implementar motor transaccional de turnos con idempotencia y bloqueo de concurrencia.
+4. Realtime para alumno, operadores y TV.
+5. QR.
+6. IA y base de conocimiento.
 
-```text
-Turnero/
-├── README.md
-├── .gitignore
-├── .env.example
-├── docs/
-│   ├── CONTEXTO_MAESTRO_SISTEMAS.md
-│   └── RECUPERAR_CODIGO_ORIGINAL.md
-├── src/
-├── database/
-│   └── migrations/
-└── tests/
+## Desarrollo local
+
+```bash
+npm install
+npm run dev
 ```
 
-## Regla principal
+Abrir `http://localhost:3000`.
 
-No desarrollar una nueva aplicación paralela.
+## Build
 
-Primero se debe recuperar el código exacto del turnero original, versionarlo y lograr un build reproducible en staging.
-
-## Flujo Git recomendado
-
-- `main`: producción estable.
-- `develop`: integración y pruebas.
-- ramas `feature/*`: funcionalidades individuales.
-- Pull Request antes de pasar cambios a `main`.
+```bash
+npm run build
+```
 
 ## Seguridad
 
-Nunca subir:
+Nunca subir `.env`, API keys, passwords, service role keys ni tokens. Ver `.env.example`.
 
-- `.env`
-- API keys reales
-- passwords
-- service role keys
-- tokens
-- credenciales de base de datos
-
-Usar `.env.example` solo con nombres de variables y valores ficticios.
+La especificación completa está en `docs/CONTEXTO_MAESTRO_SISTEMAS.md`.

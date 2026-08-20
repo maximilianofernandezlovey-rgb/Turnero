@@ -1,0 +1,6 @@
+import AppHeader from "../../components/AppHeader";
+import BackendPending from "../../components/BackendPending";
+
+export default function AdminPage(){
+  return <div className="shell"><AppHeader/><main className="main"><span className="eyebrow">Administración</span><h1>Resumen del día</h1><p className="lead">La administración se organiza por módulos para evitar saturación visual.</p><div className="adminnav"><span>Resumen</span><span>Atención</span><span>Turnos</span><span>Operadores</span><span>Boxes</span><span>Categorías</span><span>IA</span><span>Conocimiento</span><span>Estadísticas</span></div><div className="grid"><section className="card span4"><div className="muted">Atendidos</div><div className="metric">—</div></section><section className="card span4"><div className="muted">Esperando</div><div className="metric">—</div></section><section className="card span4"><div className="muted">Espera promedio</div><div className="metric">—</div></section><section className="card span6"><h2>13 boxes de Ingreso</h2><p className="muted">La configuración y estado real se leerán desde backend.</p></section><section className="card span6"><h2>Consultas IA</h2><p className="muted">Bandeja de consultas pendientes y conocimiento supervisado.</p></section></div><BackendPending/></main></div>
+}
