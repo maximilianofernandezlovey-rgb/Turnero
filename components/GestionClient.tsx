@@ -17,6 +17,7 @@ export default function GestionClient() {
   const [turn, setTurn] = useState<Turn | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedbackStatus,setFeedbackStatus]=useState<FeedbackStatus|null>(null);
+  const [feedbackPollError,setFeedbackPollError]=useState<string|null>(null);
   const [rating,setRating]=useState<number|null>(null);
   const [comment,setComment]=useState("");
   const [contactEmail,setContactEmail]=useState("");
@@ -41,16 +42,20 @@ export default function GestionClient() {
     let active=true;
     async function check(){
       try{
-        const res=await fetch(`/api/feedback/status?trackingCode=${encodeURIComponent(turn.tracking_code||"")}`,{cache:"no-store"});
+        const res=await fetch(`/api/feedback/status?trackingCode=${encodeURIComponent(turn.tracking_code||"")}&t=${Date.now()}`,{cache:"no-store"});
         const json=await res.json();
-        if(res.ok&&json?.ok&&active){
+        if(!res.ok||!json?.ok) throw new Error(json?.error||"No se pudo actualizar el estado");
+        if(active){
+          setFeedbackPollError(null);
           setFeedbackStatus(json.data);
           if(json.data?.submitted) setFeedbackSent(true);
         }
-      }catch{}
+      }catch(err){
+        if(active) setFeedbackPollError(err instanceof Error?err.message:"No se pudo actualizar el estado");
+      }
     }
     check();
-    const id=setInterval(check,5000);
+    const id=setInterval(check,3000);
     return()=>{active=false;clearInterval(id);};
   },[turn?.tracking_code]);
 
@@ -70,7 +75,11 @@ export default function GestionClient() {
     setError(null);
     setCreating(category.id);
     setFeedbackStatus(null);
+    setFeedbackPollError(null);
     setFeedbackSent(false);
+    setRating(null);
+    setComment("");
+    setContactEmail("");
     try {
       const response = await fetch("/api/turns/create", {
         method: "POST",
@@ -113,7 +122,8 @@ export default function GestionClient() {
       {!finished&&<>
         <h2>Ya estás en la fila.</h2>
         <p className="lead">Conservá esta pantalla abierta. Cuando termine tu atención, acá mismo vas a poder dejar tu opinión.</p>
-        <p className="muted">Estado actual: <strong>{feedbackStatus?.status||"esperando"}</strong></p>
+        <p className="muted">Estado actual: <strong>{feedbackStatus?.status||"consultando…"}</strong></p>
+        {feedbackPollError&&<div className="error-box" style={{marginTop:12}}>No pudimos actualizar el estado: {feedbackPollError}</div>}
       </>}
       {turn.tracking_code ? <p className="muted">Código de seguimiento: <strong>{turn.tracking_code}</strong></p> : null}
 
