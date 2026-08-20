@@ -25,6 +25,12 @@ export default function OperatorClient(){
   const [error,setError]=useState("");
   const [transferCategory,setTransferCategory]=useState("");
   const [transferBox,setTransferBox]=useState("");
+  const [closureTurn,setClosureTurn]=useState<Turn|null>(null);
+  const [careerInterest,setCareerInterest]=useState("");
+  const [residenceInterest,setResidenceInterest]=useState("");
+  const [scholarshipInterest,setScholarshipInterest]=useState("");
+  const [operatorComment,setOperatorComment]=useState("");
+  const [closureSaved,setClosureSaved]=useState(false);
 
   const load = useCallback(async (selectedBox=boxId) => {
     const qs=new URLSearchParams({sectorId:INGRESO_ID});
@@ -95,11 +101,36 @@ export default function OperatorClient(){
 
   async function action(actionName:string){
     if(!data?.current?.id) return;
+    const turnBeforeAction=data.current;
     setLoading(true);setError("");
     try{
-      await post("/api/operator/action",{turnId:data.current.id,action:actionName});
+      await post("/api/operator/action",{turnId:turnBeforeAction.id,action:actionName});
+      if(actionName==="finish"){
+        setClosureTurn({...turnBeforeAction,status:"finalizado"});
+        setClosureSaved(false);
+        setCareerInterest("");
+        setResidenceInterest("");
+        setScholarshipInterest("");
+        setOperatorComment("");
+      }
       await load(boxId);
     }catch(e){setError(e instanceof Error?e.message:"No se pudo ejecutar la acción");}finally{setLoading(false);}
+  }
+
+  async function saveClosure(e:FormEvent){
+    e.preventDefault();
+    if(!closureTurn?.id) return;
+    setLoading(true);setError("");
+    try{
+      await post("/api/operator/closure",{
+        turnId:closureTurn.id,
+        careerInterest,
+        residenceInterest:residenceInterest===""?null:residenceInterest==="yes",
+        scholarshipInterest:scholarshipInterest===""?null:scholarshipInterest==="yes",
+        operatorComment,
+      });
+      setClosureSaved(true);
+    }catch(e){setError(e instanceof Error?e.message:"No se pudo guardar el cierre");}finally{setLoading(false);}
   }
 
   async function transfer(){
@@ -141,21 +172,32 @@ export default function OperatorClient(){
       <div><span className="muted">Puesto actual</span><strong>{selectedBox?.name||"Sin seleccionar"}</strong></div>
     </div>
     {error&&<div className="error-box" style={{marginTop:14}}>{error}</div>}
+    {closureTurn&&<form className="card" onSubmit={saveClosure} style={{marginTop:16,display:"grid",gap:14}}>
+      <div><span className="eyebrow">Cierre de atención</span><h2 style={{marginBottom:6}}>{closureTurn.visible_number}</h2><p className="muted" style={{margin:0}}>Completá los datos del ingresante antes de pasar al siguiente turno.</p></div>
+      <label>Carrera de interés<input value={careerInterest} onChange={e=>setCareerInterest(e.target.value)} placeholder="Ej.: Lic. en Administración"/></label>
+      <div className="operator-toolbar" style={{marginTop:0}}>
+        <label>¿Interesado en residencia?<select value={residenceInterest} onChange={e=>setResidenceInterest(e.target.value)}><option value="">Sin informar</option><option value="yes">Sí</option><option value="no">No</option></select></label>
+        <label>¿Interesado en becas?<select value={scholarshipInterest} onChange={e=>setScholarshipInterest(e.target.value)}><option value="">Sin informar</option><option value="yes">Sí</option><option value="no">No</option></select></label>
+      </div>
+      <label>Comentario del operador<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value)} rows={3} placeholder="Observaciones útiles de la atención"/></label>
+      {closureSaved?<div className="notice" style={{background:"#eefbf3",color:"#157347",borderColor:"#b8e0c7"}}>Cierre guardado correctamente.</div>:<button className="button" disabled={loading}>{loading?"Guardando…":"Guardar cierre"}</button>}
+      {closureSaved&&<button type="button" className="button secondary" onClick={()=>setClosureTurn(null)}>Cerrar formulario</button>}
+    </form>}
     <div className="grid">
       <section className="card span4"><div className="muted">Esperando</div><div className="metric">{data?.stats?.waiting??0}</div></section>
       <section className="card span4"><div className="muted">En atención</div><div className="metric">{data?.stats?.in_service??0}</div></section>
       <section className="card span4"><div className="muted">Boxes activos</div><div className="metric">{data?.boxes?.length??0} / 13</div></section>
 
       <section className="card span8"><h2>Cola real</h2>
-        <div className="category-summary">{data?.categories?.map(c=><button className="pill" style={{border:0,cursor:"pointer"}} key={c.id} disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c.id)}>{c.prefix}: {c.waiting} · llamar</button>)}</div>
-        <div className="queue" style={{marginTop:16}}>{data?.waiting?.length?data.waiting.map(t=><div className="row" key={t.id}><div className="number">{t.visible_number}</div><div>{t.category}</div><div>{t.wait_minutes??0} min</div><div><button className="button secondary" style={{padding:"8px 10px"}} disabled={loading||!boxId||!!current} onClick={()=>callSpecific(t.id)}>Llamar</button></div></div>):<p className="muted">No hay turnos esperando.</p>}</div>
+        <div className="category-summary">{data?.categories?.map(c=><button className="pill" style={{border:0,cursor:"pointer"}} key={c.id} disabled={loading||!boxId||!!current||c.waiting===0||!!closureTurn&&!closureSaved} onClick={()=>callCategory(c.id)}>{c.prefix}: {c.waiting} · llamar</button>)}</div>
+        <div className="queue" style={{marginTop:16}}>{data?.waiting?.length?data.waiting.map(t=><div className="row" key={t.id}><div className="number">{t.visible_number}</div><div>{t.category}</div><div>{t.wait_minutes??0} min</div><div><button className="button secondary" style={{padding:"8px 10px"}} disabled={loading||!boxId||!!current||!!closureTurn&&!closureSaved} onClick={()=>callSpecific(t.id)}>Llamar</button></div></div>):<p className="muted">No hay turnos esperando.</p>}</div>
       </section>
 
       <section className="card span4"><span className="pill">Turno actual</span>
         <div className="hero-number" style={{fontSize:58,marginTop:24}}>{current?.visible_number||"—"}</div>
         <p className="muted">{current?`${current.category} · ${current.status}`:"Sin atención activa"}</p>
         <div style={{display:"grid",gap:10}}>
-          <button className="button" type="button" onClick={callNext} disabled={loading||!boxId||!!current}>LLAMAR SIGUIENTE</button>
+          <button className="button" type="button" onClick={callNext} disabled={loading||!boxId||!!current||!!closureTurn&&!closureSaved}>LLAMAR SIGUIENTE</button>
           <button className="button secondary" type="button" onClick={()=>action("recall")} disabled={loading||current?.status!=="llamado"}>Volver a llamar</button>
           <button className="button" type="button" onClick={()=>action("start")} disabled={loading||current?.status!=="llamado"}>Comenzar atención</button>
           <button className="button" type="button" onClick={()=>action("finish")} disabled={loading||current?.status!=="en_atencion"}>Finalizar</button>
