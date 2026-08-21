@@ -7,7 +7,8 @@ type Category = { id: string; sector_id: string; slug: string; name: string; pre
 type Catalog = { sectors: Sector[]; categories: Category[] };
 type Turn = { visible_number?: string; tracking_code?: string; status?: string; estimated_wait_minutes?: number };
 
-const preferredOrder = ["inscripcion", "informes", "visita", "equivalencias-externas"];
+const preferredOrder = ["inscripcion", "informes", "equivalencias-externas"];
+const hiddenCategories = new Set(["visita"]);
 
 export default function GestionClient() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -32,7 +33,7 @@ export default function GestionClient() {
   const ingreso = useMemo(() => catalog?.sectors?.find((s) => s.slug === "ingreso") ?? null, [catalog]);
   const categories = useMemo(() => {
     if (!catalog || !ingreso) return [];
-    const list = catalog.categories.filter((c) => c.sector_id === ingreso.id);
+    const list = catalog.categories.filter((c) => c.sector_id === ingreso.id && !hiddenCategories.has(c.slug));
     return [...list].sort((a, b) => {
       const ai = preferredOrder.indexOf(a.slug);
       const bi = preferredOrder.indexOf(b.slug);
@@ -62,12 +63,12 @@ export default function GestionClient() {
 
   if (turn) {
     return <section className="ticket-card">
-      <span className="eyebrow">Tu turno</span>
+      <button className="button secondary" type="button" onClick={() => setTurn(null)}>← Volver</button>
+      <span className="eyebrow" style={{display:"block",marginTop:18}}>Tu turno</span>
       <div className="ticket-number">{turn.visible_number || "Turno generado"}</div>
       <h2>Ya estás en la fila.</h2>
-      <p className="lead">Aguardá a ser llamado. Esta pantalla va a evolucionar al seguimiento en tiempo real.</p>
+      <p className="lead">Aguardá a ser llamado. Conservá esta pantalla mientras esperás.</p>
       {turn.tracking_code ? <p className="muted">Código de seguimiento: <strong>{turn.tracking_code}</strong></p> : null}
-      <button className="primary-btn" type="button" onClick={() => setTurn(null)}>Volver al inicio</button>
     </section>;
   }
 
