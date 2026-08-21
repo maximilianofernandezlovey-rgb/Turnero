@@ -48,12 +48,13 @@ export default function GestionClient(){
     let active=true;
     async function refresh(){
       try{
-        const r=await fetch(`/api/turns/status?trackingCode=${encodeURIComponent(turn.tracking_code||"")}&t=${Date.now()}`,{cache:"no-store"});
+        const trackingCode=turn.tracking_code||"";
+        const r=await fetch(`/api/turns/status?trackingCode=${encodeURIComponent(trackingCode)}&t=${Date.now()}`,{cache:"no-store"});
         const d=await r.json();
         if(!r.ok||!d?.ok) throw new Error(d?.error||"No se pudo actualizar el turno");
         if(active){
           setStatus(d.data);
-          setTurn(t=>({...t,visible_number:d.data.visible_number}));
+          setTurn(current=>current?{...current,visible_number:d.data.visible_number}:{tracking_code:trackingCode,visible_number:d.data.visible_number});
           setFeedbackSent(Boolean(d.data.feedback_submitted));
           setError(null);
         }
@@ -116,7 +117,6 @@ export default function GestionClient(){
       </div>
       {!finished&&<p className="lead">Podés dejar esta pantalla abierta. Tu turno se actualiza automáticamente.</p>}
       {error&&<div className="error-box">{error}</div>}
-
       {finished&&!feedbackSent&&<form onSubmit={submitFeedback} className="card" style={{marginTop:22,padding:22,display:'grid',gap:14}}>
         <span className="eyebrow">Atención finalizada</span>
         <h2 style={{margin:0}}>¿Cómo fue tu atención?</h2>
@@ -125,7 +125,6 @@ export default function GestionClient(){
         <p className="muted" style={{margin:0}}>El email es opcional y nos permite contactarte si necesitamos ampliar tu comentario.</p>
         <button className="primary-btn" disabled={sending}>{sending?"Enviando…":"Enviar comentario"}</button>
       </form>}
-
       {finished&&feedbackSent&&<div className="notice" style={{marginTop:22}}><strong>Gracias.</strong> Tu comentario quedó registrado.</div>}
       <button className="button secondary" type="button" onClick={reset} style={{marginTop:20}}>← Volver al inicio</button>
     </section>;
