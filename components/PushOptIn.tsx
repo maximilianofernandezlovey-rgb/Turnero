@@ -73,7 +73,7 @@ export default function PushOptIn({ trackingCode }: { trackingCode: string }) {
   if (status === "unsupported" || status === "checking") return null;
 
   if (status === "subscribed") {
-    return <div className="notice" style={{ marginTop: 16 }}>🔔 Notificaciones activadas. Podés minimizar la app.</div>;
+    return <div className="alert alert-success" style={{ marginTop: 16 }}><span aria-hidden="true">🔔</span><div>Avisos activados. Podés minimizar la app.</div></div>;
   }
 
   if (status === "denied") {
@@ -87,12 +87,12 @@ export default function PushOptIn({ trackingCode }: { trackingCode: string }) {
   return (
     <button
       type="button"
-      className="button secondary"
+      className="btn btn-secondary btn-block"
       style={{ marginTop: 16 }}
       onClick={subscribe}
       disabled={status === "subscribing"}
     >
-      {status === "subscribing" ? "Activando…" : "🔔 Activar notificaciones"}
+      {status === "subscribing" ? "Activando…" : "🔔 Activar avisos de mi turno"}
     </button>
   );
 }

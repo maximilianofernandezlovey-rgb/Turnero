@@ -1,21 +1,26 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import PushOptIn from "./PushOptIn";
+import AiAssistantTeaser from "./AiAssistantTeaser";
+import Button from "./ui/Button";
+import Alert from "./ui/Alert";
+import ProgressSteps from "./ui/ProgressSteps";
+import { visualStage, formatMinutes } from "../lib/turnDisplay";
 
 type Sector={id:string;slug:string;name:string};
 type Category={id:string;sector_id:string;slug:string;name:string;prefix?:string};
 type Catalog={sectors:Sector[];categories:Category[]};
-type Turn={visible_number?:string;tracking_code?:string};
+type Turn={visible_number?:string;tracking_code?:string;estimated_wait_minutes?:number};
 type TurnStatus={turn_id:string;visible_number:string;tracking_code:string;status:string;people_ahead:number;box?:string|null;feedback_submitted:boolean};
 
 const preferredOrder=["inscripcion","informes","equivalencias-externas"];
 const allowedSlugs=new Set(preferredOrder);
-
-function statusLabel(status?:string){
-  const labels:Record<string,string>={esperando:"En espera",llamado:"Te están llamando",en_atencion:"En atención",finalizado:"Atención finalizada",ausente:"Ausente",cancelado:"Cancelado",transferido:"Transferido"};
-  return status?labels[status]||status:"En espera";
-}
+const CATEGORY_DESCRIPTIONS:Record<string,string>={
+  inscripcion:"Iniciar o continuar mi proceso de ingreso",
+  informes:"Información sobre carreras y admisión",
+  "equivalencias-externas":"Consulta por estudios realizados anteriormente",
+};
 
 export default function GestionClient(){
   const [catalog,setCatalog]=useState<Catalog|null>(null);
@@ -29,6 +34,7 @@ export default function GestionClient(){
   const [sending,setSending]=useState(false);
   const [feedbackSent,setFeedbackSent]=useState(false);
   const [offline,setOffline]=useState(false);
+  const previousStatus=useRef<string|undefined>(undefined);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -73,6 +79,16 @@ export default function GestionClient(){
     return()=>{active=false;clearInterval(id)};
   },[turn?.tracking_code]);
 
+  // Vibración breve como mejora progresiva al ser llamado (no requisito).
+  useEffect(()=>{
+    if(status?.status==="llamado"&&previousStatus.current!=="llamado"){
+      if(typeof navigator!=="undefined"&&"vibrate" in navigator){
+        try{navigator.vibrate([120,60,120])}catch{}
+      }
+    }
+    previousStatus.current=status?.status;
+  },[status?.status]);
+
   const ingreso=useMemo(()=>catalog?.sectors?.find(s=>s.slug==="ingreso")??null,[catalog]);
   const categories=useMemo(()=>{
     if(!catalog||!ingreso)return[];
@@ -114,40 +130,69 @@ export default function GestionClient(){
   }
 
   if(turn){
-    const finished=status?.status==="finalizado";
-    return <section className="ticket-card" style={{maxWidth:720,margin:'24px auto'}}>
+    const stage=visualStage(status?.status,status?.people_ahead);
+    const finished=stage==="finalizado";
+    const called=stage==="llamado";
+    const proximo=stage==="proximo";
+
+    return <section className="ticket-card" style={{maxWidth:520,margin:'24px auto'}}>
       <span className="eyebrow">Tu turno</span>
       <div className="ticket-number">{turn.visible_number||status?.visible_number||"…"}</div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12,margin:'22px 0'}}>
-        <div className="card" style={{padding:16}}><div className="muted">Estado</div><strong>{statusLabel(status?.status)}</strong></div>
-        <div className="card" style={{padding:16}}><div className="muted">Personas adelante</div><strong style={{fontSize:28}}>{status?.people_ahead??'—'}</strong></div>
-        <div className="card" style={{padding:16}}><div className="muted">Box</div><strong>{status?.box||"A confirmar"}</strong></div>
-      </div>
-      {!finished&&<p className="lead">Podés dejar esta pantalla abierta. Tu turno se actualiza automáticamente.</p>}
-      {offline&&<div className="notice" style={{marginTop:16}}>Sin conexión. Mostrando el último estado disponible.</div>}
-      {error&&<div className="error-box">{error}</div>}
+
+      {!finished&&<ProgressSteps stage={stage==="otro"?"esperando":stage}/>}
+
+      {stage==="esperando"&&<div className="alert alert-success" style={{marginTop:8}}>
+        <span aria-hidden="true">🟢</span>
+        <div><strong>Estás en espera</strong><div>{status?.people_ahead??"—"} persona{status?.people_ahead===1?"":"s"} delante tuyo</div></div>
+      </div>}
+
+      {proximo&&<div className="alert alert-warning" style={{marginTop:8}}>
+        <span aria-hidden="true">🟠</span>
+        <div><strong>¡Ya falta poco!</strong><div>{status?.people_ahead??1} persona{status?.people_ahead===1?"":"s"} adelante</div><div>Mantenete cerca del área de atención.</div></div>
+      </div>}
+
+      {called&&<div className="alert alert-info" style={{marginTop:8,flexDirection:'column',alignItems:'stretch',textAlign:'center',padding:'22px 16px'}}>
+        <strong style={{fontSize:20}}>🔵 ¡Es tu turno!</strong>
+        <span className="eyebrow" style={{marginTop:14}}>Dirigite al</span>
+        <div style={{fontSize:'clamp(48px,16vw,84px)',fontWeight:950,letterSpacing:'-.04em',color:'var(--primary-dark)',lineHeight:1}}>
+          {status?.box?`BOX ${status.box}`:"BOX —"}
+        </div>
+      </div>}
+
+      {!finished&&turn.estimated_wait_minutes!=null&&stage==="esperando"&&
+        <p className="muted" style={{marginTop:10}}>Estimado al generar tu turno: ≈ {formatMinutes(turn.estimated_wait_minutes)}</p>}
+
+      {!finished&&<p className="lead" style={{fontSize:15}}>Podés usar otras aplicaciones. Te avisaremos cuando tu turno esté próximo.</p>}
+      {offline&&<Alert tone="warning">Sin conexión. Mostrando el último estado disponible.</Alert>}
+      {error&&<Alert tone="danger">{error}</Alert>}
       {!finished&&turn.tracking_code&&<PushOptIn trackingCode={turn.tracking_code}/>}
-      {finished&&!feedbackSent&&<form onSubmit={submitFeedback} className="card" style={{marginTop:22,padding:22,display:'grid',gap:14}}>
-        <span className="eyebrow">Atención finalizada</span>
-        <h2 style={{margin:0}}>¿Cómo fue tu atención?</h2>
+      {!finished&&<AiAssistantTeaser/>}
+
+      {finished&&!feedbackSent&&<form onSubmit={submitFeedback} className="surface surface-pad" style={{marginTop:22,display:'grid',gap:14}}>
+        <div>
+          <h2 style={{margin:'0 0 4px'}}>¡Gracias por visitarnos!</h2>
+          <span className="eyebrow">¿Cómo fue tu atención?</span>
+        </div>
         <label>Comentario<textarea rows={4} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Contanos brevemente cómo fue tu atención" required/></label>
         <label>Email de contacto<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com"/></label>
         <p className="muted" style={{margin:0}}>Dejanos tu email si querés que podamos contactarte por tu comentario.</p>
-        <button className="primary-btn" disabled={sending}>{sending?"Enviando…":"Enviar comentario"}</button>
+        <Button type="submit" disabled={sending}>{sending?"Enviando…":"Enviar comentario"}</Button>
       </form>}
-      {finished&&feedbackSent&&<div className="notice" style={{marginTop:22}}><strong>Gracias.</strong> Tu comentario quedó registrado.</div>}
-      <button className="button secondary" type="button" onClick={reset} style={{marginTop:20}}>← Volver al inicio</button>
+      {finished&&feedbackSent&&<Alert tone="success"><strong>¡Gracias por tu comentario!</strong><div>Tu opinión nos ayuda a mejorar la atención.</div></Alert>}
+      <Button variant="secondary" onClick={reset} style={{marginTop:20}}>← Volver al inicio</Button>
     </section>;
   }
 
   return <>
+    <span className="eyebrow">Turno desde el celular</span>
+    <h1>¿En qué podemos ayudarte?</h1>
     {loading&&<p className="lead">Cargando trámites…</p>}
-    {error&&<div className="error-box">{error}</div>}
+    {error&&<Alert tone="danger">{error}</Alert>}
     <div className="category-buttons">
       {categories.map(category=><button className="category" key={category.id} type="button" onClick={()=>createTurn(category)} disabled={Boolean(creating)}>
         <span className="pill">{category.prefix||category.slug.slice(0,3).toUpperCase()}</span><br/><br/>
         <strong>{category.name}</strong>
-        <div className="muted" style={{marginTop:8}}>{creating===category.id?"Generando turno…":"Tocar para obtener turno"}</div>
+        <div className="muted" style={{marginTop:8}}>{creating===category.id?"Generando turno…":CATEGORY_DESCRIPTIONS[category.slug]||"Tocar para obtener turno"}</div>
       </button>)}
     </div>
   </>;
