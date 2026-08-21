@@ -45,10 +45,10 @@ export default function GestionClient(){
 
   useEffect(()=>{
     if(!turn?.tracking_code) return;
+    const trackingCode=turn.tracking_code;
     let active=true;
     async function refresh(){
       try{
-        const trackingCode=turn.tracking_code||"";
         const r=await fetch(`/api/turns/status?trackingCode=${encodeURIComponent(trackingCode)}&t=${Date.now()}`,{cache:"no-store"});
         const d=await r.json();
         if(!r.ok||!d?.ok) throw new Error(d?.error||"No se pudo actualizar el turno");
