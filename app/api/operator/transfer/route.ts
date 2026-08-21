@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { supabaseRpc } from "../../../../lib/supabase-rest";
+import { sweepPushNotifications } from "../../../../lib/push";
 
 export async function POST(request: Request) {
   try {
@@ -12,6 +14,7 @@ export async function POST(request: Request) {
     if (!turnId) return Response.json({ ok:false, error:"Turno requerido" }, { status:400 });
     if (!targetCategoryId && !targetServicePointId) return Response.json({ ok:false, error:"Elegí una categoría o box de destino" }, { status:400 });
     const data = await supabaseRpc("api_transfer_turn", { p_token:token, p_turn_id:turnId, p_target_category_id:targetCategoryId, p_target_service_point_id:targetServicePointId });
+    after(() => sweepPushNotifications().catch(() => {}));
     return Response.json({ ok:true, data });
   } catch (error) {
     return Response.json({ ok:false, error:error instanceof Error?error.message:"No se pudo transferir el turno" }, { status:400 });

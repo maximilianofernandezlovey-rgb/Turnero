@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import PushOptIn from "./PushOptIn";
 
 type Sector={id:string;slug:string;name:string};
 type Category={id:string;sector_id:string;slug:string;name:string;prefix?:string};
@@ -27,6 +28,7 @@ export default function GestionClient(){
   const [email,setEmail]=useState("");
   const [sending,setSending]=useState(false);
   const [feedbackSent,setFeedbackSent]=useState(false);
+  const [offline,setOffline]=useState(false);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -57,8 +59,14 @@ export default function GestionClient(){
           setTurn(current=>current?{...current,visible_number:d.data.visible_number}:{tracking_code:trackingCode,visible_number:d.data.visible_number});
           setFeedbackSent(Boolean(d.data.feedback_submitted));
           setError(null);
+          setOffline(false);
         }
-      }catch(e){if(active)setError(e instanceof Error?e.message:"No se pudo actualizar el turno")}
+      }catch(e){
+        if(!active)return;
+        const isNetworkFailure=e instanceof TypeError||!navigator.onLine;
+        if(isNetworkFailure) setOffline(true);
+        else setError(e instanceof Error?e.message:"No se pudo actualizar el turno");
+      }
     }
     refresh();
     const id=setInterval(refresh,3000);
@@ -77,7 +85,7 @@ export default function GestionClient(){
     if(!ingreso||creating)return;
     setCreating(category.id);setError(null);
     try{
-      const response=await fetch("/api/turns/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sectorId:ingreso.id,categoryId:category.id,requestId:crypto.randomUUID()})});
+      const response=await fetch("/api/turns/create",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sectorId:ingreso.id,categoryId:category.id,requestId:crypto.randomUUID(),origin:"qr"})});
       const data=await response.json();
       if(!response.ok||!data?.ok)throw new Error(data?.error||"No se pudo generar el turno");
       setTurn(data.turn);setStatus(null);setFeedbackSent(false);
@@ -116,13 +124,15 @@ export default function GestionClient(){
         <div className="card" style={{padding:16}}><div className="muted">Box</div><strong>{status?.box||"A confirmar"}</strong></div>
       </div>
       {!finished&&<p className="lead">Podés dejar esta pantalla abierta. Tu turno se actualiza automáticamente.</p>}
+      {offline&&<div className="notice" style={{marginTop:16}}>Sin conexión. Mostrando el último estado disponible.</div>}
       {error&&<div className="error-box">{error}</div>}
+      {!finished&&turn.tracking_code&&<PushOptIn trackingCode={turn.tracking_code}/>}
       {finished&&!feedbackSent&&<form onSubmit={submitFeedback} className="card" style={{marginTop:22,padding:22,display:'grid',gap:14}}>
         <span className="eyebrow">Atención finalizada</span>
         <h2 style={{margin:0}}>¿Cómo fue tu atención?</h2>
         <label>Comentario<textarea rows={4} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Contanos brevemente cómo fue tu atención" required/></label>
         <label>Email de contacto<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com"/></label>
-        <p className="muted" style={{margin:0}}>El email es opcional y nos permite contactarte si necesitamos ampliar tu comentario.</p>
+        <p className="muted" style={{margin:0}}>Dejanos tu email si querés que podamos contactarte por tu comentario.</p>
         <button className="primary-btn" disabled={sending}>{sending?"Enviando…":"Enviar comentario"}</button>
       </form>}
       {finished&&feedbackSent&&<div className="notice" style={{marginTop:22}}><strong>Gracias.</strong> Tu comentario quedó registrado.</div>}

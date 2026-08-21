@@ -43,6 +43,19 @@ Abrir `http://localhost:3000`.
 npm run build
 ```
 
+## PWA y notificaciones push (`/gestion`)
+
+`/gestion` funciona como PWA instalable (manifest + Service Worker propios, sin
+afectar el resto de las rutas) con Web Push opcional para avisar al alumno
+cuando falten ~3 personas, sea el próximo o lo llamen, aunque tenga la app
+minimizada. Requiere:
+
+1. Correr las migraciones de `supabase/migrations/` (ver el README de esa carpeta).
+2. Configurar en Vercel `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`.
+
+Sin esos dos pasos, la aplicación sigue funcionando igual que hoy — el botón de
+notificaciones simplemente no aparece.
+
 ## Seguridad
 
 Nunca subir `.env`, API keys, passwords, service role keys ni tokens. Ver `.env.example`.

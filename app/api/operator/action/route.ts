@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { supabaseRpc } from "../../../../lib/supabase-rest";
+import { sweepPushNotifications } from "../../../../lib/push";
 
 export async function POST(request: Request) {
   try {
@@ -15,6 +17,7 @@ export async function POST(request: Request) {
       p_turn_id: turnId,
       p_action: action,
     });
+    after(() => sweepPushNotifications().catch(() => {}));
     return Response.json({ ok: true, data });
   } catch (error) {
     return Response.json({ ok: false, error: error instanceof Error ? error.message : "No se pudo ejecutar la acción" }, { status: 400 });
