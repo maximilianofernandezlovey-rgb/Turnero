@@ -13,7 +13,24 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-type Status = "idle" | "checking" | "subscribing" | "subscribed" | "unsupported" | "denied" | "error";
+function isIOS() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  // iPadOS 13+ se identifica como "MacIntel" pero con soporte táctil, a
+  // diferencia de una Mac de escritorio real.
+  return /iP(hone|od|ad)/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandalone() {
+  if (typeof window === "undefined") return false;
+  const nav = window.navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
+}
+
+// "checking" y "unsupported" quedaron como estaban; se agrega "ios" para el
+// caso específico de iPhone/iPad sin instalar a pantalla de inicio, que
+// antes caía dentro de "unsupported" sin distinguirse.
+type Status = "idle" | "checking" | "subscribing" | "subscribed" | "unsupported" | "ios" | "denied" | "error";
 
 export default function PushOptIn({ trackingCode }: { trackingCode: string }) {
   const [status, setStatus] = useState<Status>("checking");
@@ -22,7 +39,15 @@ export default function PushOptIn({ trackingCode }: { trackingCode: string }) {
     let active = true;
     async function check() {
       if (!VAPID_PUBLIC_KEY || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-        if (active) setStatus("unsupported");
+        // Antes esto siempre era "unsupported" -> el componente desaparecía
+        // sin decir nada, incluso en iPhone, donde en realidad SÍ se puede
+        // recibir avisos si el usuario instala el sitio a su pantalla de
+        // inicio (sección 3 del pedido original).
+        if (isIOS() && !isStandalone()) {
+          if (active) setStatus("ios");
+        } else {
+          if (active) setStatus("unsupported");
+        }
         return;
       }
       if (Notification.permission === "denied") {
@@ -70,10 +95,33 @@ export default function PushOptIn({ trackingCode }: { trackingCode: string }) {
     }
   }
 
-  if (status === "unsupported" || status === "checking") return null;
+  if (status === "checking") return null;
+
+  if (status === "ios") {
+    return (
+      <div className="muted" style={{ marginTop: 16, fontSize: 14 }}>
+        <strong>Recibí avisos en iPhone:</strong> agregá este turnero a tu pantalla de inicio (compartir → "Agregar a
+        pantalla de inicio") para poder recibir notificaciones.
+      </div>
+    );
+  }
+
+  if (status === "unsupported") {
+    return (
+      <div className="muted" style={{ marginTop: 16, fontSize: 14 }}>
+        <strong>Avisos no disponibles en este navegador.</strong> Mantené esta pantalla abierta para seguir el estado de
+        tu turno.
+      </div>
+    );
+  }
 
   if (status === "subscribed") {
-    return <div className="alert alert-success" style={{ marginTop: 16 }}><span aria-hidden="true">🔔</span><div>Avisos activados. Podés minimizar la app.</div></div>;
+    return (
+      <div className="alert alert-success" style={{ marginTop: 16 }}>
+        <span aria-hidden="true">🔔</span>
+        <div>Avisos activados. Podés minimizar la app.</div>
+      </div>
+    );
   }
 
   if (status === "denied") {
