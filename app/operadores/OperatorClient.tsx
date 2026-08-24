@@ -20,6 +20,14 @@ type Category = { id:string; name:string; prefix:string; waiting:number; oldest_
 type Dashboard = { categories:Category[]; boxes:Box[]; waiting:Turn[]; current:Turn|null; stats:{waiting:number;called:number;in_service:number;finished:number;absent:number;cancelled:number;transferred:number} };
 type ProgramSuggestion = { id:string; name:string; faculty:string; program_type:string };
 
+const FREQUENT_PROGRAMS: ProgramSuggestion[] = [
+{ id:"89ac7bc0-fc49-4cd4-94f0-b3d8111542a0", name:"Administración de Empresas", faculty:"Ciencias Económicas", program_type:"grado" },
+{ id:"4ffb7c70-9685-4622-b364-f5c42584ec93", name:"Contador Público", faculty:"Ciencias Económicas", program_type:"grado" },
+{ id:"d2f68423-e04c-4b6b-a0de-86847e397ebe", name:"Marketing", faculty:"Ciencias Económicas", program_type:"grado" },
+{ id:"9cbb7d58-3ce3-4180-aa1d-03932e85c8aa", name:"Comercio Internacional", faculty:"Ciencias Económicas", program_type:"grado" },
+{ id:"f1d474c5-9eee-4912-b91f-b8a256270239", name:"Economía", faculty:"Ciencias Económicas", program_type:"grado" },
+];
+
 export default function OperatorClient(){
 const [loggedIn,setLoggedIn]=useState(false),[username,setUsername]=useState(""),[password,setPassword]=useState("");
 const [operatorName,setOperatorName]=useState("");
@@ -167,7 +175,8 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 
 {closureTurn&&<Modal title={`Finalizar atención · ${closureTurn.visible_number}`} onClose={()=>{if(closureSaved)setClosureTurn(null)}}>
 <form onSubmit={saveClosure}>
-<div style={{display:"grid",gap:14}}>
+<div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:22}}>
+<div>
 <FormField label="Carrera de interés *">
 <div style={{position:"relative"}}>
 <input value={careerInterest} onChange={e=>onCareerInputChange(e.target.value)} onFocus={()=>{if(careerSuggestions.length)setShowSuggestions(true)}} onBlur={()=>setTimeout(()=>setShowSuggestions(false),150)} placeholder="Buscar carrera..." autoComplete="off"/>
@@ -179,13 +188,27 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 </div>}
 </div>
 </FormField>
-<label style={{display:"flex",alignItems:"center",gap:9,fontWeight:600,cursor:"pointer"}}>
+<div style={{marginTop:16}}>
+<div className="muted" style={{fontSize:11,fontWeight:700,letterSpacing:.4,textTransform:"uppercase",marginBottom:8}}>Sugerencias frecuentes</div>
+<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+{FREQUENT_PROGRAMS.map(p=><button key={p.id} type="button" onClick={()=>pickProgram(p)} className="badge badge-neutral" style={{border:"1px solid var(--line)",cursor:"pointer",padding:"7px 13px",fontWeight:600}}>{p.name}</button>)}
+</div>
+</div>
+</div>
+<div style={{display:"grid",gap:14,alignContent:"start"}}>
+<label style={{display:"flex",alignItems:"center",gap:9,fontWeight:600,cursor:"pointer",border:"1px solid var(--line)",borderRadius:12,padding:14}}>
 <input type="checkbox" checked={residenceInterest} onChange={e=>setResidenceInterest(e.target.checked)} style={{width:18,height:18}}/>
-Interesado en Residencia UADE
+¿Interesado en Residencia UADE?
 </label>
-<FormField label="Observaciones"><textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value)} rows={3} placeholder="Opcional"/></FormField>
-{closureSaved?<Alert tone="success">Cierre guardado correctamente.</Alert>:<Button type="submit" disabled={loading} block>Guardar y finalizar</Button>}
-{closureSaved&&<Button type="button" variant="secondary" onClick={()=>setClosureTurn(null)} block>Cerrar</Button>}
+<FormField label="Observaciones (opcional)">
+<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value.slice(0,300))} maxLength={300} rows={4} placeholder="Escribí alguna observación relevante..."/>
+<div className="muted" style={{textAlign:"right",fontSize:11,marginTop:2}}>{operatorComment.length} / 300 caracteres</div>
+</FormField>
+</div>
+</div>
+<div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:20}}>
+<Button type="button" variant="secondary" onClick={()=>setClosureTurn(null)}>Cancelar</Button>
+{closureSaved?<Alert tone="success">Cierre guardado correctamente.</Alert>:<Button type="submit" disabled={loading}>Guardar y finalizar</Button>}
 </div>
 </form>
 </Modal>}
