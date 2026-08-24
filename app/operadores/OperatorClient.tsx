@@ -168,9 +168,9 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 {closureTurn&&<Modal title={`Finalizar atención · ${closureTurn.visible_number}`} onClose={()=>{if(closureSaved)setClosureTurn(null)}}>
 <form onSubmit={saveClosure}>
 <div style={{display:"grid",gap:14}}>
-<FormField label="Carrera de interés">
+<FormField label="Carrera de interés *">
 <div style={{position:"relative"}}>
-<input value={careerInterest} onChange={e=>onCareerInputChange(e.target.value)} onFocus={()=>{if(careerSuggestions.length)setShowSuggestions(true)}} onBlur={()=>setTimeout(()=>setShowSuggestions(false),150)} placeholder="Ej.: administración" autoComplete="off"/>
+<input value={careerInterest} onChange={e=>onCareerInputChange(e.target.value)} onFocus={()=>{if(careerSuggestions.length)setShowSuggestions(true)}} onBlur={()=>setTimeout(()=>setShowSuggestions(false),150)} placeholder="Buscar carrera..." autoComplete="off"/>
 {showSuggestions&&careerSuggestions.length>0&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface,#fff)",border:"1px solid var(--line)",borderRadius:10,marginTop:4,maxHeight:220,overflowY:"auto",zIndex:20,boxShadow:"0 8px 20px rgba(0,0,0,.12)"}}>
 {careerSuggestions.map(p=><button key={p.id} type="button" onMouseDown={()=>pickProgram(p)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",border:0,background:"transparent",cursor:"pointer"}}>
 <div style={{fontWeight:700,fontSize:14}}>{p.name}</div>
