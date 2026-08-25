@@ -1,9 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import PushOptIn from "./PushOptIn";
 import Button from "./ui/Button";
 import Alert from "./ui/Alert";
+import FormField from "./ui/FormField";
 import ProgressSteps from "./ui/ProgressSteps";
 import { visualStage } from "../lib/turnDisplay";
 
@@ -132,23 +132,26 @@ if(turn){
 const stage=visualStage(status?.status,status?.people_ahead);
 const finished=stage==="finalizado";
 const calledLike=stage==="llamado"||stage==="en_atencion";
-const proximo=stage==="proximo";
-const waitingLike=stage==="esperando"||proximo;
+const waitingLike=stage==="esperando"||stage==="proximo";
 
-// Pantalla "Atención finalizada": sin encabezado de turno ni barra de
-// progreso, arranca directo en el título y usa todo el alto disponible.
+// Pantalla "Atención finalizada": nada del ticket anterior (sin
+// encabezado, sin numero, sin barra de progreso), arranca directo en el
+// titulo, usa FormField (no <label> crudo) para que los campos queden
+// apilados y centrados igual que el resto de la app.
 if(finished){
-return <section style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",justifyContent:"center",maxWidth:480,margin:"0 auto",padding:"32px 4px"}}>
-{!feedbackSent?<form onSubmit={submitFeedback} style={{display:"grid",gap:18}}>
+return <section style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",justifyContent:"center",maxWidth:440,margin:"0 auto",padding:"32px 20px",width:"100%",boxSizing:"border-box"}}>
+{!feedbackSent?<form onSubmit={submitFeedback} style={{display:"grid",gap:18,width:"100%"}}>
 <div style={{textAlign:"center"}}>
-<h1 style={{fontSize:30,margin:"0 0 6px",lineHeight:1.15}}>¡Gracias por visitarnos!</h1>
+<h1 style={{fontSize:28,margin:"0 0 6px",lineHeight:1.15}}>¡Gracias por visitarnos!</h1>
 <p className="muted" style={{margin:0,fontSize:16}}>Tu atención ha finalizado.</p>
 </div>
-<label>Comentario (opcional)
-<textarea rows={7} maxLength={COMMENT_MAX} value={comment} onChange={e=>setComment(e.target.value.slice(0,COMMENT_MAX))} placeholder="Contanos tu experiencia…" style={{fontSize:16}}/>
+<FormField label="Comentario (opcional)">
+<textarea rows={6} maxLength={COMMENT_MAX} value={comment} onChange={e=>setComment(e.target.value.slice(0,COMMENT_MAX))} placeholder="Contanos tu experiencia…" style={{width:"100%",boxSizing:"border-box",fontSize:16}}/>
 <div className="muted" style={{textAlign:"right",fontSize:12,marginTop:2}}>{comment.length} / {COMMENT_MAX} caracteres</div>
-</label>
-<label>Email de contacto (opcional)<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com"/></label>
+</FormField>
+<FormField label="Email de contacto (opcional)">
+<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com" style={{width:"100%",boxSizing:"border-box"}}/>
+</FormField>
 <p className="muted" style={{margin:0,fontSize:13}}>Dejanos tu email si querés que podamos contactarte por tu comentario.</p>
 {offline&&<Alert tone="warning">Sin conexión. Mostrando el último estado disponible.</Alert>}
 {error&&<Alert tone="danger">{error}</Alert>}
@@ -164,22 +167,15 @@ return <section className="ticket-card" style={{maxWidth:520,margin:'24px auto'}
 
 <ProgressSteps stage={stage==="otro"?"esperando":(stage==="en_atencion"?"llamado":stage)}/>
 
-{stage==="esperando"&&<div className="alert alert-success" style={{marginTop:8}}>
+{waitingLike&&<div className="alert alert-success" style={{marginTop:8}}>
 <span aria-hidden="true">🕐</span>
-<div><strong>Estás en la fila</strong><div>{status?.people_ahead??"—"} persona{status?.people_ahead===1?"":"s"} adelante</div></div>
-</div>}
-
-{proximo&&<div className="alert alert-warning" style={{marginTop:8}}>
-<span aria-hidden="true">🟠</span>
-<div><strong>¡Ya falta poco!</strong><div>{status?.people_ahead??1} persona{status?.people_ahead===1?"":"s"} adelante</div><div>Mantenete cerca del área de atención.</div></div>
+<div><strong>Estás en la fila</strong><div>{status?.people_ahead??"—"} persona{status?.people_ahead===1?"":"s"} adelante</div><div>Mantenete cerca del área de atención.</div></div>
 </div>}
 
 {waitingLike&&<div className="alert alert-info" style={{marginTop:8}}>
 <span aria-hidden="true">🔔</span>
 <div><strong>Te avisaremos cuando sea tu turno.</strong></div>
 </div>}
-
-{waitingLike&&turn.tracking_code&&<PushOptIn trackingCode={turn.tracking_code}/>}
 
 {calledLike&&<div className="alert alert-info" style={{marginTop:8,flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',padding:'56px 24px',borderRadius:20,minHeight:340}}>
 <span aria-hidden="true" style={{fontSize:80,lineHeight:1}}>🔔</span>
