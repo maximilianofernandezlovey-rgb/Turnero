@@ -182,7 +182,7 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 </div>
 </Modal>}
 
-{closureTurn&&<Modal title={`Finalizar atención · ${closureTurn.visible_number}`} onClose={()=>{if(closureSaved)setClosureTurn(null)}}>
+{closureTurn&&<Modal title={`Finalizar atención · ${closureTurn.visible_number}`} onClose={()=>{if(closureSaved)setClosureTurn(null)}} wide>
 <form onSubmit={saveClosure}>
 <div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:22}}>
 <div>
@@ -211,7 +211,7 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 ¿Interesado en Residencia UADE?
 </label>
 <FormField label="Observaciones (opcional)">
-<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value.slice(0,300))} maxLength={300} rows={9} placeholder="Escribí alguna observación relevante..." style={{minHeight:170}}/>
+<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value.slice(0,300))} maxLength={300} rows={9} placeholder="Escribí alguna observación relevante..." style={{minHeight:200,width:"100%",boxSizing:"border-box"}}/>
 <div className="muted" style={{textAlign:"right",fontSize:11,marginTop:2}}>{operatorComment.length} / 300 caracteres</div>
 </FormField>
 </div>
