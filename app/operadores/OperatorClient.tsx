@@ -38,6 +38,7 @@ const [closureTurn,setClosureTurn]=useState<Turn|null>(null),[careerInterest,set
 const [careerSuggestions,setCareerSuggestions]=useState<ProgramSuggestion[]>([]);
 const [showSuggestions,setShowSuggestions]=useState(false);
 const searchTimeoutRef=useRef<ReturnType<typeof setTimeout>|null>(null);
+const careerInputRef=useRef<HTMLInputElement>(null);
 const [now,setNow]=useState(()=>new Date());
 
 useEffect(()=>{const id=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(id)},[]);
@@ -54,6 +55,14 @@ async function callCategory(categoryId:string){if(!boxId){setError("Seleccioná 
 async function callSpecific(turnId:string){if(!boxId){setError("Seleccioná un box antes de llamar");return}setLoading(true);setError("");try{await post("/api/operator/call-specific",{turnId,servicePointId:boxId});await load(boxId)}catch(e){setError(e instanceof Error?e.message:"No se pudo llamar el turno")}finally{setLoading(false)}}
 async function action(actionName:string){if(!data?.current?.id)return;const t=data.current;setLoading(true);setError("");try{await post("/api/operator/action",{turnId:t.id,action:actionName});if(actionName==="finish"){setClosureTurn({...t,status:"finalizado"});setClosureSaved(false);setCareerInterest("");setAcademicProgramId("");setCareerSuggestions([]);setShowSuggestions(false);setResidenceInterest(false);setOperatorComment("")}await load(boxId)}catch(e){setError(e instanceof Error?e.message:"No se pudo ejecutar la acción")}finally{setLoading(false)}}
 function onCareerInputChange(value:string){setCareerInterest(value);setAcademicProgramId("");if(searchTimeoutRef.current)clearTimeout(searchTimeoutRef.current);if(value.trim().length<2){setCareerSuggestions([]);setShowSuggestions(false);return}searchTimeoutRef.current=setTimeout(async()=>{try{const res=await fetch(`/api/operator/search-programs?q=${encodeURIComponent(value.trim())}`);const json=await res.json();if(res.ok&&json.ok){setCareerSuggestions(json.data||[]);setShowSuggestions(true)}}catch{/* no bloquea la carga manual del texto */}},250)}
+async function showMorePrograms(){
+try{
+const res=await fetch("/api/operator/search-programs?q=");
+const json=await res.json();
+if(res.ok&&json.ok){setCareerSuggestions(json.data||[]);setShowSuggestions(true)}
+}catch{}
+careerInputRef.current?.focus();
+}
 function pickProgram(p:ProgramSuggestion){setCareerInterest(p.name);setAcademicProgramId(p.id);setCareerSuggestions([]);setShowSuggestions(false)}
 async function saveClosure(e:FormEvent){e.preventDefault();if(!closureTurn?.id)return;setLoading(true);setError("");try{await post("/api/operator/closure",{turnId:closureTurn.id,careerInterest,academicProgramId:academicProgramId||null,residenceInterest,operatorComment});setClosureSaved(true)}catch(e){setError(e instanceof Error?e.message:"No se pudo guardar el cierre")}finally{setLoading(false)}}
 async function transfer(){if(!data?.current?.id)return;if(!transferCategory&&!transferBox){setError("Elegí una categoría o un box de destino");return}setLoading(true);setError("");try{await post("/api/operator/transfer",{turnId:data.current.id,targetCategoryId:transferCategory||null,targetServicePointId:transferBox||null});setTransferCategory("");setTransferBox("");setTransferOpen(false);await load(boxId)}catch(e){setError(e instanceof Error?e.message:"No se pudo transferir el turno")}finally{setLoading(false)}}
@@ -179,7 +188,7 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 <div>
 <FormField label="Carrera de interés *">
 <div style={{position:"relative"}}>
-<input value={careerInterest} onChange={e=>onCareerInputChange(e.target.value)} onFocus={()=>{if(careerSuggestions.length)setShowSuggestions(true)}} onBlur={()=>setTimeout(()=>setShowSuggestions(false),150)} placeholder="Buscar carrera..." autoComplete="off"/>
+<input value={careerInterest} onChange={e=>onCareerInputChange(e.target.value)} onFocus={()=>{if(careerSuggestions.length)setShowSuggestions(true)}} onBlur={()=>setTimeout(()=>setShowSuggestions(false),150)} placeholder="Buscar carrera..." autoComplete="off" ref={careerInputRef}/>
 {showSuggestions&&careerSuggestions.length>0&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--surface,#fff)",border:"1px solid var(--line)",borderRadius:10,marginTop:4,maxHeight:220,overflowY:"auto",zIndex:20,boxShadow:"0 8px 20px rgba(0,0,0,.12)"}}>
 {careerSuggestions.map(p=><button key={p.id} type="button" onMouseDown={()=>pickProgram(p)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",border:0,background:"transparent",cursor:"pointer"}}>
 <div style={{fontWeight:700,fontSize:14}}>{p.name}</div>
@@ -191,8 +200,9 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 <div style={{marginTop:16}}>
 <div className="muted" style={{fontSize:11,fontWeight:700,letterSpacing:.4,textTransform:"uppercase",marginBottom:8}}>Sugerencias frecuentes</div>
 <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-{FREQUENT_PROGRAMS.map(p=><button key={p.id} type="button" onClick={()=>pickProgram(p)} className="badge badge-neutral" style={{border:"1px solid var(--line)",cursor:"pointer",padding:"7px 13px",fontWeight:600}}>{p.name}</button>)}
+{FREQUENT_PROGRAMS.map(p=><button key={p.id} type="button" onClick={()=>pickProgram(p)} className="badge badge-neutral" style={{border:"1px solid var(--line)",cursor:"pointer",padding:"7px 13px",fontWeight:600,display:"inline-flex",alignItems:"center",gap:6}}><span aria-hidden="true">🎓</span>{p.name}</button>)}
 </div>
+<button type="button" onClick={showMorePrograms} style={{border:0,background:"transparent",color:"var(--primary,#1d4ed8)",fontWeight:700,cursor:"pointer",padding:"10px 0 0",fontSize:13}}>Ver más carreras →</button>
 </div>
 </div>
 <div style={{display:"grid",gap:14,alignContent:"start"}}>
@@ -201,7 +211,7 @@ disabled={loading||!boxId||!!current||c.waiting===0} onClick={()=>callCategory(c
 ¿Interesado en Residencia UADE?
 </label>
 <FormField label="Observaciones (opcional)">
-<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value.slice(0,300))} maxLength={300} rows={4} placeholder="Escribí alguna observación relevante..."/>
+<textarea value={operatorComment} onChange={e=>setOperatorComment(e.target.value.slice(0,300))} maxLength={300} rows={9} placeholder="Escribí alguna observación relevante..." style={{minHeight:170}}/>
 <div className="muted" style={{textAlign:"right",fontSize:11,marginTop:2}}>{operatorComment.length} / 300 caracteres</div>
 </FormField>
 </div>
