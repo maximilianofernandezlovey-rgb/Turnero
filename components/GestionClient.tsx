@@ -131,18 +131,38 @@ const u=new URL(window.location.href);u.searchParams.delete("trackingCode");wind
 if(turn){
 const stage=visualStage(status?.status,status?.people_ahead);
 const finished=stage==="finalizado";
-// El flujo móvil queda en 3 pasos: turno generado / te llamamos / atención
-// finalizada. "llamado" y "en_atencion" comparten la misma pantalla — no
-// existe una pantalla separada de "en atención" en el celular.
 const calledLike=stage==="llamado"||stage==="en_atencion";
 const proximo=stage==="proximo";
 const waitingLike=stage==="esperando"||proximo;
+
+// Pantalla "Atención finalizada": sin encabezado de turno ni barra de
+// progreso, arranca directo en el título y usa todo el alto disponible.
+if(finished){
+return <section style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",justifyContent:"center",maxWidth:480,margin:"0 auto",padding:"32px 4px"}}>
+{!feedbackSent?<form onSubmit={submitFeedback} style={{display:"grid",gap:18}}>
+<div style={{textAlign:"center"}}>
+<h1 style={{fontSize:30,margin:"0 0 6px",lineHeight:1.15}}>¡Gracias por visitarnos!</h1>
+<p className="muted" style={{margin:0,fontSize:16}}>Tu atención ha finalizado.</p>
+</div>
+<label>Comentario (opcional)
+<textarea rows={7} maxLength={COMMENT_MAX} value={comment} onChange={e=>setComment(e.target.value.slice(0,COMMENT_MAX))} placeholder="Contanos tu experiencia…" style={{fontSize:16}}/>
+<div className="muted" style={{textAlign:"right",fontSize:12,marginTop:2}}>{comment.length} / {COMMENT_MAX} caracteres</div>
+</label>
+<label>Email de contacto (opcional)<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com"/></label>
+<p className="muted" style={{margin:0,fontSize:13}}>Dejanos tu email si querés que podamos contactarte por tu comentario.</p>
+{offline&&<Alert tone="warning">Sin conexión. Mostrando el último estado disponible.</Alert>}
+{error&&<Alert tone="danger">{error}</Alert>}
+<Button type="submit" disabled={sending} block>{sending?"Enviando…":"Enviar comentario"}</Button>
+</form>
+:<Alert tone="success"><strong>¡Gracias por tu comentario!</strong><div>Tu opinión nos ayuda a mejorar la atención.</div></Alert>}
+</section>;
+}
 
 return <section className="ticket-card" style={{maxWidth:520,margin:'24px auto'}}>
 <span className="eyebrow">Tu turno</span>
 <div className="ticket-number">{turn.visible_number||status?.visible_number||"…"}</div>
 
-{!finished&&<ProgressSteps stage={stage==="otro"?"esperando":(stage==="en_atencion"?"llamado":stage)}/>}
+<ProgressSteps stage={stage==="otro"?"esperando":(stage==="en_atencion"?"llamado":stage)}/>
 
 {stage==="esperando"&&<div className="alert alert-success" style={{marginTop:8}}>
 <span aria-hidden="true">🕐</span>
@@ -161,30 +181,15 @@ return <section className="ticket-card" style={{maxWidth:520,margin:'24px auto'}
 
 {waitingLike&&turn.tracking_code&&<PushOptIn trackingCode={turn.tracking_code}/>}
 
-{calledLike&&<div className="alert alert-info" style={{marginTop:8,flexDirection:'column',alignItems:'center',textAlign:'center',padding:'40px 20px',borderRadius:18}}>
-<span aria-hidden="true" style={{fontSize:56,lineHeight:1}}>🔔</span>
-<strong style={{fontSize:26,marginTop:10,display:'block'}}>¡Te llamamos!</strong>
-{status?.box&&<div style={{background:'#fff',color:'var(--primary-dark)',fontWeight:900,fontSize:22,padding:'10px 28px',borderRadius:999,marginTop:16}}>{status.box}</div>}
-<p style={{marginTop:16,fontSize:16}}>Nuestro operador te está esperando.</p>
+{calledLike&&<div className="alert alert-info" style={{marginTop:8,flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',padding:'56px 24px',borderRadius:20,minHeight:340}}>
+<span aria-hidden="true" style={{fontSize:80,lineHeight:1}}>🔔</span>
+<strong style={{fontSize:32,marginTop:18,display:'block'}}>¡Te llamamos!</strong>
+{status?.box&&<div style={{background:'var(--primary,#1d4ed8)',color:'#fff',fontWeight:900,fontSize:28,padding:'16px 20px',borderRadius:14,marginTop:24,width:'100%',boxSizing:'border-box'}}>{status.box}</div>}
+<p style={{marginTop:24,fontSize:18}}>Nuestro operador te está esperando.</p>
 </div>}
 
 {offline&&<Alert tone="warning">Sin conexión. Mostrando el último estado disponible.</Alert>}
 {error&&<Alert tone="danger">{error}</Alert>}
-
-{finished&&!feedbackSent&&<form onSubmit={submitFeedback} className="surface surface-pad" style={{marginTop:22,display:'grid',gap:16}}>
-<div>
-<h2 style={{margin:'0 0 4px'}}>¡Gracias por visitarnos!</h2>
-<p className="muted" style={{margin:0}}>Tu atención ha finalizado.</p>
-</div>
-<label>Comentario (opcional)
-<textarea rows={4} maxLength={COMMENT_MAX} value={comment} onChange={e=>setComment(e.target.value.slice(0,COMMENT_MAX))} placeholder="Contanos tu experiencia…"/>
-<div className="muted" style={{textAlign:'right',fontSize:12,marginTop:2}}>{comment.length} / {COMMENT_MAX} caracteres</div>
-</label>
-<label>Email de contacto (opcional)<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="nombre@email.com"/></label>
-<p className="muted" style={{margin:0,fontSize:13}}>Dejanos tu email si querés que podamos contactarte por tu comentario.</p>
-<Button type="submit" disabled={sending}>{sending?"Enviando…":"Enviar comentario"}</Button>
-</form>}
-{finished&&feedbackSent&&<Alert tone="success"><strong>¡Gracias por tu comentario!</strong><div>Tu opinión nos ayuda a mejorar la atención.</div></Alert>}
 {waitingLike&&<Button variant="secondary" onClick={reset} style={{marginTop:20}}>← Volver al inicio</Button>}
 </section>;
 }
