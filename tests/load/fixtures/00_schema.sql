@@ -1,0 +1,291 @@
+-- tests/load/fixtures/00_schema.sql
+--
+-- Fixture de SOLO ESTRUCTURA para pruebas locales en GitHub Actions.
+-- Extraido por lectura (information_schema / pg_proc / pg_constraint /
+-- pg_indexes) contra el proyecto real de Supabase, el 25/08. Cero datos
+-- reales, cero PII. Esto NO es una migracion de produccion: vive
+-- exclusivamente en tests/load/fixtures/ y solo se aplica dentro del
+-- Postgres efimero que levanta "supabase start" en el workflow de CI.
+--
+-- Incluye api_create_turn en su version ORIGINAL (con la race condition
+-- de idempotencia ya documentada) a proposito: el workflow la aplica
+-- primero, corre la prueba de concurrencia para reproducir el problema,
+-- y recien despues aplica supabase/migrations/0004_idempotent_turn_creation.sql
+-- para probar que lo corrige. api_get_turn_v2 y api_tag_turn_origin
+-- tambien se incluyen porque api_create_turn (version original) depende
+-- de la primera, y la ruta /api/turns/create llama a la segunda.
+
+create extension if not exists "uuid-ossp";
+create extension if not exists pgcrypto;
+create extension if not exists citext;
+
+create table public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  username citext not null unique,
+  display_name text not null,
+  password_hash text not null,
+  role text not null check (role in ('admin','supervisor','operator')),
+  active boolean not null default true,
+  must_change_password boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.sectors (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  prefix text not null,
+  description text,
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.categories (
+  id uuid primary key default gen_random_uuid(),
+  sector_id uuid not null references public.sectors(id),
+  slug text not null,
+  name text not null,
+  description text,
+  active boolean not null default true,
+  target_minutes integer not null default 10,
+  sort_order integer not null default 0,
+  prefix text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (sector_id, slug)
+);
+
+create table public.campuses (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  address text,
+  timezone text not null default 'America/Argentina/Buenos_Aires',
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.service_points (
+  id uuid primary key default gen_random_uuid(),
+  campus_id uuid not null references public.campuses(id),
+  sector_id uuid not null references public.sectors(id),
+  code text not null,
+  name text not null,
+  floor text,
+  location_description text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.qr_points (
+  id uuid primary key default gen_random_uuid(),
+  public_code text not null unique,
+  campus_id uuid not null references public.campuses(id),
+  sector_id uuid not null references public.sectors(id),
+  service_point_id uuid references public.service_points(id),
+  label text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.user_sector_memberships (
+  user_id uuid not null references public.app_users(id),
+  sector_id uuid not null references public.sectors(id),
+  primary key (user_id, sector_id)
+);
+
+create table public.auth_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.app_users(id),
+  token_hash bytea not null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  last_seen_at timestamptz not null default now(),
+  user_agent text,
+  revoked_at timestamptz
+);
+
+create table public.turns (
+  id uuid primary key default gen_random_uuid(),
+  tracking_code text not null unique,
+  queue_date date not null default current_date,
+  sequence_number integer not null,
+  visible_number text not null,
+  sector_id uuid not null references public.sectors(id),
+  category_id uuid not null references public.categories(id),
+  status text not null default 'esperando' check (status in ('esperando','proximo','llamado','en_atencion','finalizado','cancelado','ausente','transferido')),
+  priority smallint not null default 0 check (priority >= 0 and priority <= 9),
+  created_at timestamptz not null default now(),
+  called_at timestamptz,
+  started_at timestamptz,
+  finished_at timestamptz,
+  operator_id uuid references public.app_users(id),
+  derived_from_turn_id uuid references public.turns(id),
+  notes text,
+  qr_point_id uuid references public.qr_points(id),
+  service_point_id uuid references public.service_points(id),
+  origin text not null default 'web',
+  request_id text,
+  unique (sector_id, category_id, queue_date, sequence_number),
+  unique (sector_id, queue_date, visible_number)
+);
+
+create unique index turns_request_id_unique_idx on public.turns using btree (request_id) where (request_id is not null);
+create unique index turns_request_id_unique on public.turns using btree (request_id) where (request_id is not null);
+create index turns_queue_idx on public.turns using btree (sector_id, queue_date, status, priority desc, created_at);
+create index turns_operator_idx on public.turns using btree (operator_id, created_at desc);
+create index turns_service_point_idx on public.turns using btree (service_point_id) where (service_point_id is not null);
+create unique index turns_one_active_per_service_point_idx on public.turns using btree (service_point_id) where (service_point_id is not null and status in ('llamado','en_atencion'));
+create index turns_qr_point_idx on public.turns using btree (qr_point_id) where (qr_point_id is not null);
+
+create table public.turn_events (
+  id bigint generated always as identity primary key,
+  turn_id uuid not null references public.turns(id),
+  sector_id uuid not null references public.sectors(id),
+  event_type text not null,
+  from_status text,
+  to_status text,
+  user_id uuid references public.app_users(id),
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- RLS habilitado, sin politicas permisivas: igual que en produccion, todo
+-- el acceso pasa por funciones SECURITY DEFINER, nunca por REST directo.
+alter table public.app_users enable row level security;
+alter table public.sectors enable row level security;
+alter table public.categories enable row level security;
+alter table public.campuses enable row level security;
+alter table public.service_points enable row level security;
+alter table public.qr_points enable row level security;
+alter table public.user_sector_memberships enable row level security;
+alter table public.auth_sessions enable row level security;
+alter table public.turns enable row level security;
+alter table public.turn_events enable row level security;
+
+-- api_create_turn: version ORIGINAL (con la race condition de
+-- idempotencia). El workflow la reemplaza mas tarde aplicando 0004.
+CREATE OR REPLACE FUNCTION public.api_create_turn(p_sector_id uuid, p_category_id uuid, p_request_id text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare s public.sectors%rowtype; c public.categories%rowtype; seq int; code text; tid uuid; ahead int; eta int; prefix text;
+begin
+  if p_request_id is not null then
+    select id into tid from public.turns where request_id=p_request_id limit 1;
+    if tid is not null then return public.api_get_turn_v2((select tracking_code from public.turns where id=tid)); end if;
+  end if;
+  select * into s from public.sectors where id=p_sector_id and active;
+  select * into c from public.categories where id=p_category_id and sector_id=p_sector_id and active;
+  if s.id is null or c.id is null then raise exception 'Sector o categoría inválidos'; end if;
+  prefix:=coalesce(nullif(c.prefix,''),s.prefix);
+  perform pg_advisory_xact_lock(hashtextextended(p_category_id::text||current_date::text,0));
+  select coalesce(max(sequence_number),0)+1 into seq from public.turns where sector_id=p_sector_id and category_id=p_category_id and queue_date=current_date;
+  code:=upper(substr(encode(extensions.gen_random_bytes(8),'hex'),1,12));
+  insert into public.turns(tracking_code,queue_date,sequence_number,visible_number,sector_id,category_id,request_id)
+  values(code,current_date,seq,prefix||'-'||lpad(seq::text,3,'0'),p_sector_id,p_category_id,p_request_id) returning id into tid;
+  insert into public.turn_events(turn_id,sector_id,event_type,to_status,metadata) values(tid,p_sector_id,'created','esperando',jsonb_build_object('request_id',p_request_id));
+  select count(*) into ahead from public.turns t where t.sector_id=p_sector_id and t.queue_date=current_date and t.status='esperando' and t.created_at<(select created_at from public.turns where id=tid);
+  eta:=(ahead+1)*c.target_minutes;
+  return jsonb_build_object('id',tid,'tracking_code',code,'visible_number',prefix||'-'||lpad(seq::text,3,'0'),'status','esperando','people_ahead',ahead,'estimated_wait_minutes',eta,'sector',s.name,'category',c.name);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.api_get_turn_v2(p_tracking_code text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare
+  t public.turns%rowtype;
+  child public.turns%rowtype;
+  ahead int;
+  target int;
+  active_ops int;
+  hops int:=0;
+begin
+  select * into t from public.turns
+  where tracking_code=upper(trim(p_tracking_code)) and queue_date>=current_date-1
+  order by created_at desc limit 1;
+  if t.id is null then return null; end if;
+
+  loop
+    exit when hops>=10;
+    select * into child from public.turns where derived_from_turn_id=t.id order by created_at desc limit 1;
+    exit when child.id is null;
+    t:=child;
+    child:=null;
+    hops:=hops+1;
+  end loop;
+
+  if t.status='esperando' then
+    select count(*) into ahead from public.turns x
+    where x.sector_id=t.sector_id and x.queue_date=t.queue_date and x.status='esperando'
+      and (x.priority>t.priority or (x.priority=t.priority and x.created_at<t.created_at));
+  else ahead:=0; end if;
+
+  select target_minutes into target from public.categories where id=t.category_id;
+  select count(distinct usm.user_id) into active_ops
+    from public.user_sector_memberships usm
+    join public.auth_sessions sess on sess.user_id=usm.user_id
+    where usm.sector_id=t.sector_id and sess.revoked_at is null and sess.expires_at>now() and sess.last_seen_at>now()-interval '15 minutes';
+
+  return jsonb_build_object(
+    'id',t.id,
+    'visible_number',t.visible_number,
+    'tracking_code',t.tracking_code,
+    'status',t.status,
+    'people_ahead',ahead,
+    'estimated_wait_minutes',case when t.status='esperando' then greatest(1,ceil(((ahead+1)*coalesce(target,8))::numeric/greatest(active_ops,1)))::int else 0 end,
+    'created_at',t.created_at,
+    'called_at',t.called_at,
+    'started_at',t.started_at,
+    'finished_at',t.finished_at,
+    'sector',(select name from public.sectors where id=t.sector_id),
+    'category',(select name from public.categories where id=t.category_id),
+    'campus',(select c.name from public.qr_points q join public.campuses c on c.id=q.campus_id where q.id=t.qr_point_id),
+    'location',(select q.label from public.qr_points q where q.id=t.qr_point_id),
+    'service_point',(select sp.name from public.service_points sp where sp.id=t.service_point_id),
+    'origin',t.origin,
+    'was_derived',(t.derived_from_turn_id is not null)
+  );
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.api_tag_turn_origin(p_tracking_code text, p_origin text)
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  update public.turns
+  set origin = p_origin
+  where tracking_code = p_tracking_code;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.api_public_catalog()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ select jsonb_build_object(
+  'sectors',coalesce((select jsonb_agg(jsonb_build_object('id',s.id,'slug',s.slug,'name',s.name,'description',s.description,'prefix',s.prefix) order by s.sort_order,s.name) from public.sectors s where s.active),'[]'::jsonb),
+  'categories',coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'sector_id',c.sector_id,'slug',c.slug,'name',c.name,'description',c.description,'target_minutes',c.target_minutes,'prefix',c.prefix) order by c.sort_order,c.name) from public.categories c where c.active),'[]'::jsonb)
+ );
+$function$;
+
+grant usage on schema public to anon, authenticated;
+grant execute on function public.api_create_turn(uuid,uuid,text) to anon, authenticated;
+grant execute on function public.api_get_turn_v2(text) to anon, authenticated;
+grant execute on function public.api_tag_turn_origin(text,text) to anon, authenticated;
+grant execute on function public.api_public_catalog() to anon, authenticated;
