@@ -20,7 +20,14 @@ import http from "k6/http";
 import { check, sleep } from "k6";
 import { Trend, Counter } from "k6/metrics";
 
-const BASE_URL = __ENV.BASE_URL || "https://turnero-h91j.vercel.app";
+const PRODUCTION_HOSTS = ["turnero-h91j.vercel.app"];
+if (!__ENV.BASE_URL) {
+  throw new Error("BASE_URL es obligatorio. Pasalo con -e BASE_URL=https://tu-staging.example.com (nunca produccion).");
+}
+const BASE_URL = __ENV.BASE_URL;
+if (PRODUCTION_HOSTS.some((h) => BASE_URL.includes(h))) {
+  throw new Error(`BASE_URL (${BASE_URL}) apunta a produccion. Este script no puede correr contra produccion. Abortando antes de generar trafico.`);
+}
 const RUN_ID = __ENV.RUN_ID || `LOADTEST-STRESS-${Date.now()}`;
 const VUS = parseInt(__ENV.VUS || "500", 10);
 const DURATION = __ENV.DURATION || "90s";
