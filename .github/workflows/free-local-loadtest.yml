@@ -1,0 +1,219 @@
+# .github/workflows/free-local-loadtest.yml
+#
+# Prueba de idempotencia y carga 100% local y gratuita. Corre solo en la
+# rama ci/free-local-loadtest, nunca se mergea a main. No usa Supabase
+# Branching, Vercel, bases remotas ni secretos de produccion -- todo pasa
+# contra un Postgres efimero levantado con "supabase start" (Docker)
+# DENTRO de este runner, con datos 100% sinteticos.
+#
+# Seguridad:
+# - Runner unico: ubuntu-latest (estandar, gratis e ilimitado en repos
+#   publicos). Nunca un larger runner.
+# - concurrency con group fijo: nunca dos corridas en paralelo.
+# - timeout-minutes en el job: no queda colgado consumiendo minutos.
+# - permissions: contents: read -- el GITHUB_TOKEN no puede escribir nada.
+# - Sin actions/upload-artifact, sin actions/cache: nada persiste mas
+#   alla del runner efimero.
+# - Todas las actions de terceros pinneadas a una version exacta.
+# - BASE_URL para las pruebas siempre es http://127.0.0.1:3000 -- nunca
+#   se referencia turnero-h91j.vercel.app ni ningun dominio real en este
+#   archivo.
+
+name: Free local loadtest (idempotencia)
+
+on:
+  push:
+    branches: [ci/free-local-loadtest]
+  workflow_dispatch: {}
+
+concurrency:
+  group: free-local-loadtest
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SECTOR_ID: "00000000-0000-4000-8000-000000000001"
+  CATEGORY_ID: "00000000-0000-4000-8000-000000000101"
+  CATEGORY_ID_2: "00000000-0000-4000-8000-000000000102"
+  BASE_URL: "http://127.0.0.1:3000"
+
+jobs:
+  local-loadtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verificar que NO estamos en main
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "ABORT: este workflow no debe correr sobre main." >&2
+            exit 1
+          fi
+          echo "OK: corriendo sobre ${{ github.ref }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node fijo
+        uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "20.18.0"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run build
+        run: npm run build
+
+      - name: TypeScript --noEmit
+        run: npx tsc --noEmit
+
+      - name: Instalar Supabase CLI (version fija)
+        uses: supabase/setup-cli@v1.9.0
+        with:
+          version: 2.19.7
+
+      - name: Diagnostico de --help (antes de ejecutar nada real)
+        run: |
+          supabase --version
+          supabase --help
+          supabase start --help
+          supabase status --help
+          supabase db --help
+
+      - name: Generar config.toml minimo para el Postgres local
+        run: |
+          mkdir -p supabase
+          if [ ! -f supabase/config.toml ]; then
+            cat > supabase/config.toml <<'EOF'
+          project_id = "turnero-local-ci"
+          [api]
+          enabled = true
+          port = 54321
+          [db]
+          port = 54322
+          major_version = 17
+          [studio]
+          enabled = false
+          [auth]
+          enabled = false
+          [storage]
+          enabled = false
+          [realtime]
+          enabled = false
+          [inbucket]
+          enabled = false
+          EOF
+          fi
+
+      - name: supabase start (Docker local, sin red externa mas alla de bajar imagenes)
+        run: supabase start
+
+      - name: Volcar status a variables de entorno
+        id: supa
+        run: |
+          supabase status -o env >> "$GITHUB_ENV" || supabase status
+
+      - name: Confirmar que la URL de la API y de la DB son localhost (allowlist explicita)
+        run: |
+          echo "API_URL=${API_URL:-no seteada}"
+          echo "DB_URL=${DB_URL:-no seteada}"
+          for val in "${API_URL:-}" "${DB_URL:-}"; do
+            if [ -n "$val" ]; then
+              case "$val" in
+                *127.0.0.1*|*localhost*) echo "OK: $val es localhost" ;;
+                *) echo "ABORT: '$val' no esta en la allowlist de localhost." >&2; exit 1 ;;
+              esac
+            fi
+          done
+
+      - name: Aplicar fixture de esquema (api_create_turn ORIGINAL, con el bug, a proposito)
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/00_schema.sql
+
+      - name: Aplicar seed sintetico
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/01_seed_synthetic.sql
+
+      - name: Confirmar que las variables locales NO son las de produccion
+        run: |
+          if [ -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]; then
+            case "${NEXT_PUBLIC_SUPABASE_URL}" in
+              *supabase.co*) echo "ABORT: NEXT_PUBLIC_SUPABASE_URL apunta a un dominio remoto de Supabase." >&2; exit 1 ;;
+            esac
+          fi
+          echo "OK: sin variables de produccion detectadas en el entorno del job."
+
+      - name: Levantar Next.js contra el Supabase local unicamente
+        run: |
+          NEXT_PUBLIC_SUPABASE_URL="$API_URL" \
+          NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" \
+          SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+          npm run start -- -p 3000 &
+          echo $! > next.pid
+          npx wait-on -t 60000 http://127.0.0.1:3000/api/health
+
+      - name: Verificar /api/health y /api/catalog contra localhost
+        run: |
+          curl -sf http://127.0.0.1:3000/api/health
+          echo ""
+          curl -sf http://127.0.0.1:3000/api/catalog
+          echo ""
+
+      - name: "[Diagnostico, no bloqueante] Idempotencia 50 con api_create_turn ORIGINAL"
+        continue-on-error: true
+        run: RUN_ID=PREFIX-50 MODE=same COUNT=50 node tests/load/local-loadtest.mjs
+
+      - name: "[Diagnostico, no bloqueante] Idempotencia 100 con api_create_turn ORIGINAL"
+        continue-on-error: true
+        run: RUN_ID=PREFIX-100 MODE=same COUNT=100 node tests/load/local-loadtest.mjs
+
+      - name: Aplicar 0004_idempotent_turn_creation.sql (el fix real)
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/0004_idempotent_turn_creation.sql
+
+      - name: "[GATE] Idempotencia 50 solicitudes, mismo requestId, post-fix"
+        run: RUN_ID=POSTFIX-50 MODE=same COUNT=50 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE] Idempotencia 100 solicitudes, mismo requestId, post-fix"
+        run: RUN_ID=POSTFIX-100 MODE=same COUNT=100 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE] 50 requestId distintos"
+        run: RUN_ID=DIST-50 MODE=distinct COUNT=50 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE] 100 requestId distintos"
+        run: RUN_ID=DIST-100 MODE=distinct COUNT=100 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE] Reutilizar requestId con categoria distinta debe rechazarse"
+        run: RUN_ID=MISMATCH MODE=mismatch node tests/load/local-loadtest.mjs
+
+      - name: Verificacion SQL -- una sola fila y un solo evento created (post-fix, 50)
+        run: |
+          psql "$DB_URL" -t -c "select count(*) from turns where request_id='POSTFIX-50-SAME';"
+          psql "$DB_URL" -t -c "select count(*) from turn_events te join turns t on t.id=te.turn_id where t.request_id='POSTFIX-50-SAME' and te.event_type='created';"
+
+      - name: Verificacion SQL -- una sola fila y un solo evento created (post-fix, 100)
+        run: |
+          psql "$DB_URL" -t -c "select count(*) from turns where request_id='POSTFIX-100-SAME';"
+          psql "$DB_URL" -t -c "select count(*) from turn_events te join turns t on t.id=te.turn_id where t.request_id='POSTFIX-100-SAME' and te.event_type='created';"
+
+      - name: "[GATE progresivo] 25 usuarios"
+        run: RUN_ID=PROG MODE=progressive COUNT=25 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE progresivo] 50 usuarios"
+        run: RUN_ID=PROG MODE=progressive COUNT=50 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE progresivo] 100 usuarios"
+        run: RUN_ID=PROG MODE=progressive COUNT=100 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE progresivo] 250 usuarios"
+        run: RUN_ID=PROG MODE=progressive COUNT=250 node tests/load/local-loadtest.mjs
+
+      - name: "[GATE progresivo] 500 usuarios"
+        run: RUN_ID=PROG MODE=progressive COUNT=500 node tests/load/local-loadtest.mjs
+
+      - name: Detener Next.js
+        if: always()
+        run: kill "$(cat next.pid)" 2>/dev/null || true
+
+      - name: supabase stop (borra los contenedores locales)
+        if: always()
+        run: supabase stop --no-backup || true
