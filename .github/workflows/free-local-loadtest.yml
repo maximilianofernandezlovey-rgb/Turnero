@@ -106,8 +106,22 @@ jobs:
           EOF
           fi
 
+      - name: Deshabilitar auto-aplicado de supabase/migrations (solo en este checkout efimero)
+        run: |
+          # supabase start aplica automaticamente todo lo que encuentra en
+          # supabase/migrations/, en orden de nombre. Esas migraciones reales
+          # (0001..0004) asumen que el esquema base ya existe -- pero aca
+          # arrancamos de una base vacia y queremos aplicar PRIMERO nuestro
+          # fixture con la version original de api_create_turn. Por eso se
+          # saca la carpeta del camino: solo en este checkout del runner,
+          # nunca se toca ni se commitea nada del repo real.
+          mv supabase/migrations supabase/migrations.disabled-for-ci
+
       - name: supabase start (Docker local, sin red externa mas alla de bajar imagenes)
         run: supabase start
+
+      - name: Restaurar supabase/migrations (para poder aplicar 0004 mas abajo por su ruta real)
+        run: mv supabase/migrations.disabled-for-ci supabase/migrations
 
       - name: Volcar status a variables de entorno
         id: supa
