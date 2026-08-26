@@ -4,17 +4,23 @@
 // /api/turns/create -> /api/turns/status. Reproduce exactamente las
 // llamadas que hace un celular real (revisadas en components/GestionClient.tsx).
 //
+// MODELO DE ITERACION (corregido): cada VU crea su turno UNA sola vez
+// (executor per-vu-iterations, iterations=1) -- no un loop indefinido que
+// termine generando miles de turnos. VUS=500 crea exactamente ~500 turnos
+// (menos los que fallen). El polling de /api/turns/status si se repite,
+// con un intervalo realista, simulando a alguien con la pantalla abierta
+// esperando que lo llamen -- eso es lo que de verdad pasa en produccion.
+//
 // USO (contra un runtime con red real: Claude Code, tu maquina, un runner de CI):
 //
-//   k6 run -e VUS=25  -e DURATION=30s tests/load/qr-load.js   # Prueba 1
-//   k6 run -e VUS=50  -e DURATION=30s tests/load/qr-load.js   # Prueba 2
-//   k6 run -e VUS=100 -e DURATION=45s tests/load/qr-load.js   # Prueba 3
-//   k6 run -e VUS=250 -e DURATION=60s tests/load/qr-load.js   # Prueba 4
-//   k6 run -e VUS=500 -e DURATION=90s tests/load/qr-load.js   # Prueba 5
+//   k6 run -e VUS=25  tests/load/qr-load.js   # Prueba 1
+//   k6 run -e VUS=50  tests/load/qr-load.js   # Prueba 2
+//   k6 run -e VUS=100 tests/load/qr-load.js   # Prueba 3
+//   k6 run -e VUS=250 tests/load/qr-load.js   # Prueba 4
+//   k6 run -e VUS=500 tests/load/qr-load.js   # Prueba 5
 //
 // Corre cada etapa por separado y mira el resultado antes de avanzar a la
-// siguiente -- asi lo pide el instructivo original. No hay un modo "correr
-// las 5 de una" a proposito.
+// siguiente. No hay un modo "correr las 5 de una" a proposito.
 //
 // IDENTIFICACION: cada turno creado usa requestId = `${RUN_ID}-${VU}-${ITER}`.
 // RUN_ID por defecto es LOADTEST-<timestamp epoch>, pero se puede fijar con
@@ -36,7 +42,11 @@ import { Trend, Counter } from "k6/metrics";
 const BASE_URL = __ENV.BASE_URL || "https://turnero-h91j.vercel.app";
 const RUN_ID = __ENV.RUN_ID || `LOADTEST-${Date.now()}`;
 const VUS = parseInt(__ENV.VUS || "25", 10);
-const DURATION = __ENV.DURATION || "30s";
+// Cuantas veces cada VU consulta /api/turns/status despues de crear su
+// turno, y cada cuanto -- simula a alguien con la pantalla abierta, NO
+// un poll infinito.
+const POLL_COUNT = parseInt(__ENV.POLL_COUNT || "5", 10);
+const POLL_INTERVAL_S = parseFloat(__ENV.POLL_INTERVAL_S || "4");
 const CATEGORY_SLUG_ALLOWLIST = ["inscripcion", "informes", "equivalencias-externas"];
 
 export const createDuration = new Trend("turn_create_duration", true);
@@ -46,14 +56,13 @@ export const createFailures = new Counter("turn_create_failures");
 export const options = {
   scenarios: {
     qr_flow: {
-      executor: "ramping-vus",
-      startVUs: 0,
-      stages: [
-        { duration: "10s", target: VUS },
-        { duration: DURATION, target: VUS },
-        { duration: "10s", target: 0 },
-      ],
-      gracefulRampDown: "10s",
+      // Cada VU ejecuta el flujo completo (crear + pollear) UNA sola vez.
+      // Esto es lo que garantiza "VUS turnos creados", no "VUS turnos por
+      // segundo durante toda la corrida".
+      executor: "per-vu-iterations",
+      vus: VUS,
+      iterations: 1,
+      maxDuration: "5m",
     },
   },
   thresholds: {
@@ -78,7 +87,7 @@ export function setup() {
     .map((c) => c.id);
   if (categoryIds.length === 0) throw new Error("No se encontraron categorias activas para 'ingreso'.");
 
-  console.log(`RUN_ID=${RUN_ID} sectorId=${sector.id} categorias=${categoryIds.length} VUS=${VUS} DURATION=${DURATION}`);
+  console.log(`RUN_ID=${RUN_ID} sectorId=${sector.id} categorias=${categoryIds.length} VUS=${VUS} (1 turno por VU) POLL_COUNT=${POLL_COUNT}`);
   return { sectorId: sector.id, categoryIds, runId: RUN_ID };
 }
 
@@ -90,7 +99,8 @@ export default function (data) {
   const gestionRes = http.get(`${BASE_URL}/gestion`);
   check(gestionRes, { "/gestion responde 200": (r) => r.status === 200 });
 
-  // 2) Crea el turno con un requestId unico e identificable.
+  // 2) Crea el turno UNA vez -- esta es la unica iteracion de creacion
+  // para este VU, no un loop.
   const createRes = http.post(
     `${BASE_URL}/api/turns/create`,
     JSON.stringify({ sectorId: data.sectorId, categoryId, requestId, origin: "qr" }),
@@ -107,16 +117,17 @@ export default function (data) {
     return;
   }
 
-  // 3) Igual que un alumno real: deja la pantalla abierta y consulta el estado.
+  // 3) Igual que un alumno real: deja la pantalla abierta y consulta el
+  // estado un numero acotado de veces, no indefinidamente.
   const trackingCode = createRes.json("turn").tracking_code;
-  sleep(1 + Math.random());
-  const statusRes = http.get(`${BASE_URL}/api/turns/status?trackingCode=${trackingCode}`, {
-    tags: { name: "turns_status" },
-  });
-  statusDuration.add(statusRes.timings.duration);
-  check(statusRes, { "status responde 200": (r) => r.status === 200 });
-
-  sleep(Math.random() * 2);
+  for (let i = 0; i < POLL_COUNT; i++) {
+    sleep(POLL_INTERVAL_S + Math.random());
+    const statusRes = http.get(`${BASE_URL}/api/turns/status?trackingCode=${trackingCode}`, {
+      tags: { name: "turns_status" },
+    });
+    statusDuration.add(statusRes.timings.duration);
+    check(statusRes, { "status responde 200": (r) => r.status === 200 });
+  }
 }
 
 export function teardown(data) {
