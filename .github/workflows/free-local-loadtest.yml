@@ -70,9 +70,9 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Instalar Supabase CLI (version fija)
-        uses: supabase/setup-cli@v1.9.0
+        uses: supabase/setup-cli@v1
         with:
-          version: 2.19.7
+          version: 2.20.3
 
       - name: Diagnostico de --help (antes de ejecutar nada real)
         run: |
