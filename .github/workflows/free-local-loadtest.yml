@@ -93,7 +93,6 @@ jobs:
           port = 54321
           [db]
           port = 54322
-          major_version = 17
           [studio]
           enabled = false
           [auth]
