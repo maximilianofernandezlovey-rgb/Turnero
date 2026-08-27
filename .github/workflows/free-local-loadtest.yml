@@ -129,9 +129,13 @@ jobs:
           echo "--- salida cruda de: supabase status -o env ---"
           supabase status -o env | tee /tmp/status.env
           echo "--- fin salida cruda ---"
-          cat /tmp/status.env >> "$GITHUB_ENV"
-          echo "--- variables realmente cargadas en GITHUB_ENV por este paso ---"
-          cat /tmp/status.env
+          # El formato de -o env envuelve los valores en comillas dobles
+          # literales (NAME="value"). GITHUB_ENV no es un shell -- no las
+          # interpreta, las toma como parte del valor. Hay que sacarlas.
+          sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' /tmp/status.env > /tmp/status.clean.env
+          cat /tmp/status.clean.env >> "$GITHUB_ENV"
+          echo "--- variables limpias realmente cargadas en GITHUB_ENV por este paso ---"
+          cat /tmp/status.clean.env
 
       - name: Confirmar que la URL de la API y de la DB son localhost (allowlist explicita)
         run: |
