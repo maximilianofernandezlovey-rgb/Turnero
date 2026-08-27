@@ -172,6 +172,22 @@ async function runProgressive() {
   );
   const ok = results.filter((r) => r.status === 200 && r.body?.ok === true);
   const failed = results.length - ok.length;
+  if (failed > 0) {
+    // Desglose real de por que fallaron, para documentar la causa exacta
+    // en vez de asumir. status=0 = la conexion TCP/fetch nunca completo
+    // (ECONNREFUSED, timeout, socket colgado); status>0 = el servidor
+    // respondio con ese codigo HTTP.
+    const byStatus = {};
+    const sampleErrors = [];
+    for (const r of results) {
+      if (r.status === 200 && r.body?.ok === true) continue;
+      const key = r.status === 0 ? "sin_respuesta(fetch_error)" : `http_${r.status}`;
+      byStatus[key] = (byStatus[key] || 0) + 1;
+      if (sampleErrors.length < 3) sampleErrors.push({ status: r.status, error: r.error || null, body: r.body });
+    }
+    console.log(`[progressive] desglose de fallos: ${JSON.stringify(byStatus)}`);
+    console.log(`[progressive] ejemplos (hasta 3): ${JSON.stringify(sampleErrors)}`);
+  }
   const durations = results.map((r) => r.durationMs).sort((a, b) => a - b);
   const p50 = percentile(durations, 50);
   const p95 = percentile(durations, 95);
