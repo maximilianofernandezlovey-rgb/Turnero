@@ -63,9 +63,6 @@ jobs:
       - name: npm ci
         run: npm ci
 
-      - name: npm run build
-        run: npm run build
-
       - name: TypeScript --noEmit
         run: npx tsc --noEmit
 
@@ -96,7 +93,8 @@ jobs:
           [studio]
           enabled = false
           [auth]
-          enabled = false
+          enabled = true
+          site_url = "http://127.0.0.1:3000"
           [storage]
           enabled = false
           [realtime]
@@ -164,6 +162,11 @@ jobs:
             esac
           fi
           echo "OK: sin variables de produccion detectadas en el entorno del job."
+
+      - name: npm run build (con las variables reales del Supabase local -- NEXT_PUBLIC_* se hornean en build, no en runtime)
+        run: |
+          echo "API_URL=$API_URL ANON_KEY_presente=$([ -n \"$ANON_KEY\" ] && echo si || echo no)"
+          NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" npm run build
 
       - name: Levantar Next.js contra el Supabase local unicamente
         run: |
