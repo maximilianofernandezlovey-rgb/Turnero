@@ -126,7 +126,12 @@ jobs:
       - name: Volcar status a variables de entorno
         id: supa
         run: |
-          supabase status -o env >> "$GITHUB_ENV" || supabase status
+          echo "--- salida cruda de: supabase status -o env ---"
+          supabase status -o env | tee /tmp/status.env
+          echo "--- fin salida cruda ---"
+          cat /tmp/status.env >> "$GITHUB_ENV"
+          echo "--- variables realmente cargadas en GITHUB_ENV por este paso ---"
+          cat /tmp/status.env
 
       - name: Confirmar que la URL de la API y de la DB son localhost (allowlist explicita)
         run: |
