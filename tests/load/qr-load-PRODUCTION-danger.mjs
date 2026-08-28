@@ -86,8 +86,33 @@ const results = await Promise.all(
 
 const ok = results.filter((r) => r.status === 200 && r.body?.ok === true);
 const failed = results.length - ok.length;
-const codes = new Set(ok.map((r) => r.body.turn.tracking_code));
-const numbers = new Set(ok.map((r) => r.body.turn.visible_number));
+const ids = ok.map((r) => r.body.turn.id);
+const codes = ok.map((r) => r.body.turn.tracking_code);
+const numbers = ok.map((r) => r.body.turn.visible_number);
+const uniqueIds = new Set(ids);
+const uniqueCodes = new Set(codes);
+const uniqueNumbers = new Set(numbers);
 
-console.log(`ETAPA=${COUNT} creadas=${ok.length} errores=${failed} tracking_code_unicos=${codes.size} visible_number_unicos=${numbers.size}`);
+function percentile(sortedArr, p) {
+  if (sortedArr.length === 0) return 0;
+  const idx = Math.min(sortedArr.length - 1, Math.ceil((p / 100) * sortedArr.length) - 1);
+  return sortedArr[Math.max(0, idx)];
+}
+const durations = results.map((r) => r.durationMs).sort((a, b) => a - b);
+const p50 = percentile(durations, 50);
+const p95 = percentile(durations, 95);
+const p99 = percentile(durations, 99);
+
+if (failed > 0) {
+  const byStatus = {};
+  for (const r of results) {
+    if (r.status === 200 && r.body?.ok === true) continue;
+    const key = r.status === 0 ? "sin_respuesta(fetch_error)" : `http_${r.status}`;
+    byStatus[key] = (byStatus[key] || 0) + 1;
+  }
+  console.log(`desglose_de_fallos=${JSON.stringify(byStatus)}`);
+}
+
+console.log(`ETAPA=${COUNT} exitosas=${ok.length} fallidas=${failed} p50_ms=${p50} p95_ms=${p95} p99_ms=${p99}`);
+console.log(`duplicados_id=${ids.length - uniqueIds.size} duplicados_tracking_code=${codes.length - uniqueCodes.size} duplicados_visible_number=${numbers.length - uniqueNumbers.size}`);
 console.log(`RUN_ID=${RUN_ID} -- usar este valor exacto para la limpieza SQL.`);
