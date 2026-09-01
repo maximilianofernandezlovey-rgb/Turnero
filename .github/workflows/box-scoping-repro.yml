@@ -78,6 +78,41 @@ jobs:
       - name: "[REPRO] Ejecutar reproduccion + fix + verificacion"
         run: psql "$DB_URL" -f tests/db/box_date_scoping_repro.sql
 
+      - name: "[CONCURRENCIA] Preparar 2 operadores + 2 turnos esperando"
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 << 'SQL'
+          insert into public.app_users (id, username, display_name, password_hash, role, active) values
+            ('00000000-0000-4000-8000-000000000811','concur.op.a','Concur A',extensions.crypt('a',extensions.gen_salt('bf')),'operator',true),
+            ('00000000-0000-4000-8000-000000000812','concur.op.b','Concur B',extensions.crypt('b',extensions.gen_salt('bf')),'operator',true);
+          insert into public.user_sector_memberships (user_id, sector_id) values
+            ('00000000-0000-4000-8000-000000000811','00000000-0000-4000-8000-000000000001'),
+            ('00000000-0000-4000-8000-000000000812','00000000-0000-4000-8000-000000000001');
+          insert into public.auth_sessions (id, user_id, token_hash, expires_at) values
+            ('00000000-0000-4000-8000-000000000813','00000000-0000-4000-8000-000000000811',extensions.digest('concur-token-a','sha256'),now()+interval '1 hour'),
+            ('00000000-0000-4000-8000-000000000814','00000000-0000-4000-8000-000000000812',extensions.digest('concur-token-b','sha256'),now()+interval '1 hour');
+          insert into public.turns (id, tracking_code, queue_date, sequence_number, visible_number, sector_id, category_id, status) values
+            ('00000000-0000-4000-8000-000000000906','CONCUR-A',current_date,6,'TEST-CONCUR-A','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000101','esperando'),
+            ('00000000-0000-4000-8000-000000000907','CONCUR-B',current_date,7,'TEST-CONCUR-B','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000101','esperando');
+          SQL
+
+      - name: "[CONCURRENCIA] Dos operadores llaman al MISMO box a la vez (indice ya corregido)"
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-a','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000101','00000000-0000-4000-8000-000000000301');" > /tmp/concur_a.log 2>&1 &
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-b','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000101','00000000-0000-4000-8000-000000000301');" > /tmp/concur_b.log 2>&1 &
+          wait
+          echo "--- resultado operador A ---"; cat /tmp/concur_a.log
+          echo "--- resultado operador B ---"; cat /tmp/concur_b.log
+          echo "--- verificacion: exactamente 1 turno debe haber tomado el box 301 hoy ---"
+          psql "$DB_URL" -t -c "select count(*) as turnos_activos_en_box_301_hoy from turns where service_point_id='00000000-0000-4000-8000-000000000301' and queue_date=current_date and status in ('llamado','en_atencion') and id in ('00000000-0000-4000-8000-000000000906','00000000-0000-4000-8000-000000000907');"
+
+      - name: "[CONCURRENCIA] Limpieza"
+        if: always()
+        run: |
+          psql "$DB_URL" -c "delete from turns where id in ('00000000-0000-4000-8000-000000000906','00000000-0000-4000-8000-000000000907');" || true
+          psql "$DB_URL" -c "delete from auth_sessions where id in ('00000000-0000-4000-8000-000000000813','00000000-0000-4000-8000-000000000814');" || true
+          psql "$DB_URL" -c "delete from user_sector_memberships where user_id in ('00000000-0000-4000-8000-000000000811','00000000-0000-4000-8000-000000000812');" || true
+          psql "$DB_URL" -c "delete from app_users where id in ('00000000-0000-4000-8000-000000000811','00000000-0000-4000-8000-000000000812');" || true
+
       - name: supabase stop
         if: always()
         run: supabase stop --no-backup || true
