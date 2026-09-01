@@ -284,6 +284,68 @@ AS $function$
  );
 $function$;
 
+create schema if not exists private;
+
+CREATE OR REPLACE FUNCTION private."session_user"(p_token text)
+ RETURNS TABLE(user_id uuid, role text, display_name text, must_change_password boolean)
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ select u.id,u.role,u.display_name,u.must_change_password
+ from public.auth_sessions s join public.app_users u on u.id=s.user_id
+ where s.token_hash=extensions.digest(p_token,'sha256') and s.revoked_at is null and s.expires_at>now() and u.active limit 1;
+$function$;
+
+CREATE OR REPLACE FUNCTION private.can_access_sector(p_user uuid, p_role text, p_sector uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ select p_role='admin' or exists(select 1 from public.user_sector_memberships m where m.user_id=p_user and m.sector_id=p_sector);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.api_transfer_turn(p_token text, p_turn_id uuid, p_target_category_id uuid DEFAULT NULL::uuid, p_target_service_point_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare su record; src public.turns%rowtype; target_cat public.categories%rowtype; sp public.service_points%rowtype; created jsonb; child_id uuid; old_status text;
+begin
+ select * into su from private.session_user(p_token); if su.user_id is null then raise exception 'Sesión inválida'; end if;
+ select * into src from public.turns where id=p_turn_id for update;
+ if src.id is null or not private.can_access_sector(su.user_id,su.role,src.sector_id) then raise exception 'Acceso denegado'; end if;
+ if src.status not in('llamado','en_atencion') then raise exception 'Solo se puede transferir un turno activo'; end if;
+ old_status:=src.status;
+ if p_target_category_id is null then
+   if p_target_service_point_id is null then raise exception 'Elegí una categoría o un box de destino'; end if;
+   select * into sp from public.service_points where id=p_target_service_point_id and sector_id=src.sector_id and active;
+   if sp.id is null then raise exception 'Box de destino inválido'; end if;
+   if sp.id=src.service_point_id then raise exception 'Elegí otro box'; end if;
+   if exists(select 1 from public.turns where service_point_id=sp.id and queue_date=current_date and status in('llamado','en_atencion')) then raise exception 'El box de destino está ocupado'; end if;
+   update public.turns set status='llamado',called_at=clock_timestamp(),started_at=null,operator_id=null,service_point_id=sp.id where id=src.id returning * into src;
+   insert into public.turn_events(turn_id,sector_id,event_type,from_status,to_status,user_id,metadata) values(src.id,src.sector_id,'transfer_box',old_status,'llamado',su.user_id,jsonb_build_object('target_service_point_id',sp.id,'target_service_point',sp.name));
+   return jsonb_build_object('mode','box','turn',jsonb_build_object('id',src.id,'visible_number',src.visible_number,'status',src.status,'service_point',sp.name));
+ end if;
+ select * into target_cat from public.categories where id=p_target_category_id and active;
+ if target_cat.id is null then raise exception 'Categoría de destino inválida'; end if;
+ created:=public.api_create_turn(target_cat.sector_id,target_cat.id,'transfer:'||src.id::text||':'||extract(epoch from clock_timestamp())::bigint::text);
+ child_id:=(created->>'id')::uuid;
+ update public.turns set status='transferido',finished_at=clock_timestamp() where id=src.id;
+ update public.turns set derived_from_turn_id=src.id,origin='operator',priority=src.priority where id=child_id;
+ if p_target_service_point_id is not null then
+   select * into sp from public.service_points where id=p_target_service_point_id and sector_id=target_cat.sector_id and active;
+   if sp.id is null then raise exception 'Box de destino inválido'; end if;
+   if exists(select 1 from public.turns where service_point_id=sp.id and queue_date=current_date and status in('llamado','en_atencion')) then raise exception 'El box de destino está ocupado'; end if;
+   update public.turns set status='llamado',called_at=clock_timestamp(),service_point_id=sp.id,operator_id=null where id=child_id;
+ end if;
+ insert into public.turn_events(turn_id,sector_id,event_type,from_status,to_status,user_id,metadata) values(src.id,src.sector_id,'transfer_category',old_status,'transferido',su.user_id,jsonb_build_object('target_category_id',target_cat.id,'derived_turn_id',child_id,'target_service_point_id',p_target_service_point_id));
+ return jsonb_build_object('mode','category','source_turn',src.visible_number,'derived_turn',public.api_get_turn_v2(created->>'tracking_code'));
+end;
+$function$;
+
 grant usage on schema public to anon, authenticated;
 grant execute on function public.api_create_turn(uuid,uuid,text) to anon, authenticated;
 grant execute on function public.api_get_turn_v2(text) to anon, authenticated;
