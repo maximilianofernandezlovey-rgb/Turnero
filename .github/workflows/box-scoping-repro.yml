@@ -1,0 +1,83 @@
+# .github/workflows/box-scoping-repro.yml
+#
+# Reproduccion aislada del P0 de boxes bloqueados por turnos historicos.
+# Solo Postgres efimero local -- no toca produccion, no usa Next.js.
+
+name: Box scoping repro (P0)
+
+on:
+  push:
+    branches: [ci/free-local-loadtest]
+    paths:
+      - 'tests/db/box_date_scoping_repro.sql'
+      - '.github/workflows/box-scoping-repro.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: box-scoping-repro
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Instalar Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.20.3
+
+      - name: Generar config.toml minimo
+        run: |
+          mkdir -p supabase
+          if [ ! -f supabase/config.toml ]; then
+            cat > supabase/config.toml <<'EOF'
+          project_id = "turnero-repro-ci"
+          [api]
+          enabled = true
+          port = 54321
+          [db]
+          port = 54322
+          [studio]
+          enabled = false
+          [auth]
+          enabled = false
+          [storage]
+          enabled = false
+          [realtime]
+          enabled = false
+          [inbucket]
+          enabled = false
+          EOF
+          fi
+
+      - name: Deshabilitar auto-aplicado de supabase/migrations
+        run: mv supabase/migrations supabase/migrations.disabled-for-ci
+
+      - name: supabase start
+        run: supabase start
+
+      - name: Volcar status a variables de entorno
+        run: |
+          supabase status -o env | tee /tmp/status.env
+          sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' /tmp/status.env > /tmp/status.clean.env
+          cat /tmp/status.clean.env >> "$GITHUB_ENV"
+
+      - name: Aplicar fixture de esquema (indice ORIGINAL, con el bug)
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/00_schema.sql
+
+      - name: Aplicar seed sintetico
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/01_seed_synthetic.sql
+
+      - name: "[REPRO] Ejecutar reproduccion + fix + verificacion"
+        run: psql "$DB_URL" -f tests/db/box_date_scoping_repro.sql
+
+      - name: supabase stop
+        if: always()
+        run: supabase stop --no-backup || true
