@@ -144,10 +144,10 @@ select
   end as resultado_paso_7
 from public.turns where id='00000000-0000-4000-8000-000000000905';
 
+delete from public.turns where id in ('00000000-0000-4000-8000-000000000904','00000000-0000-4000-8000-000000000905');
 delete from public.auth_sessions where id='00000000-0000-4000-8000-000000000802';
 delete from public.user_sector_memberships where user_id='00000000-0000-4000-8000-000000000801';
 delete from public.app_users where id='00000000-0000-4000-8000-000000000801';
-delete from public.turns where id in ('00000000-0000-4000-8000-000000000904','00000000-0000-4000-8000-000000000905');
 delete from public.service_points where id in ('00000000-0000-4000-8000-000000000302','00000000-0000-4000-8000-000000000303');
 
 -- limpieza de este test especifico
