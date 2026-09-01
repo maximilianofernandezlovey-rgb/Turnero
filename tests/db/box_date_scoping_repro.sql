@@ -109,8 +109,11 @@ insert into public.user_sector_memberships (user_id, sector_id) values ('0000000
 insert into public.auth_sessions (id, user_id, token_hash, expires_at)
 values ('00000000-0000-4000-8000-000000000802', '00000000-0000-4000-8000-000000000801', extensions.digest('repro-test-token','sha256'), now() + interval '1 hour');
 
+insert into public.service_points (id, campus_id, sector_id, code, name, active)
+values ('00000000-0000-4000-8000-000000000303', '00000000-0000-4000-8000-000000000201', '00000000-0000-4000-8000-000000000001', 'BOX-T3', 'Box de prueba 3 (origen)', true);
+
 insert into public.turns (id, tracking_code, queue_date, sequence_number, visible_number, sector_id, category_id, status, service_point_id, called_at, operator_id)
-values ('00000000-0000-4000-8000-000000000904', 'REPRO-XFER-SRC', current_date, 4, 'TEST-XFER-1', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'llamado', '00000000-0000-4000-8000-000000000301', now(), '00000000-0000-4000-8000-000000000801');
+values ('00000000-0000-4000-8000-000000000904', 'REPRO-XFER-SRC', current_date, 4, 'TEST-XFER-1', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'llamado', '00000000-0000-4000-8000-000000000303', now(), '00000000-0000-4000-8000-000000000801');
 
 update public.turns set service_point_id='00000000-0000-4000-8000-000000000302' where id='00000000-0000-4000-8000-000000000901';
 
@@ -125,14 +128,16 @@ from public.turns where id='00000000-0000-4000-8000-000000000904';
 
 -- === PASO 7: api_transfer_turn REAL contra un box ocupado HOY -> bloqueado ===
 insert into public.turns (id, tracking_code, queue_date, sequence_number, visible_number, sector_id, category_id, status, service_point_id, called_at, operator_id)
-values ('00000000-0000-4000-8000-000000000905', 'REPRO-XFER-SRC2', current_date, 5, 'TEST-XFER-2', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'llamado', '00000000-0000-4000-8000-000000000301', now(), '00000000-0000-4000-8000-000000000801');
+values ('00000000-0000-4000-8000-000000000905', 'REPRO-XFER-SRC2', current_date, 5, 'TEST-XFER-2', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'llamado', '00000000-0000-4000-8000-000000000303', now(), '00000000-0000-4000-8000-000000000801');
+
+update public.turns set service_point_id='00000000-0000-4000-8000-000000000301' where id='00000000-0000-4000-8000-000000000902';
 
 \set ON_ERROR_STOP off
 select public.api_transfer_turn('repro-test-token', '00000000-0000-4000-8000-000000000905', null, '00000000-0000-4000-8000-000000000302') as intento_transferencia_a_box_ocupado_hoy;
 \set ON_ERROR_STOP on
 
 select
-  case when service_point_id='00000000-0000-4000-8000-000000000301'
+  case when service_point_id='00000000-0000-4000-8000-000000000303'
     then 'XFER_BLOQUEO_OK: transferencia a box ocupado HOY fue rechazada, turno sigue en su box original'
     else 'XFER_BLOQUEO_FALLIDO: la transferencia se aplico pese a estar el box ocupado -- CRITICO'
   end as resultado_paso_7
@@ -142,6 +147,7 @@ delete from public.auth_sessions where id='00000000-0000-4000-8000-000000000802'
 delete from public.user_sector_memberships where user_id='00000000-0000-4000-8000-000000000801';
 delete from public.app_users where id='00000000-0000-4000-8000-000000000801';
 delete from public.turns where id in ('00000000-0000-4000-8000-000000000904','00000000-0000-4000-8000-000000000905');
+delete from public.service_points where id='00000000-0000-4000-8000-000000000303';
 
 -- limpieza de este test especifico
 delete from public.turns where id in (
