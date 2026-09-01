@@ -109,8 +109,9 @@ insert into public.user_sector_memberships (user_id, sector_id) values ('0000000
 insert into public.auth_sessions (id, user_id, token_hash, expires_at)
 values ('00000000-0000-4000-8000-000000000802', '00000000-0000-4000-8000-000000000801', extensions.digest('repro-test-token','sha256'), now() + interval '1 hour');
 
-insert into public.service_points (id, campus_id, sector_id, code, name, active)
-values ('00000000-0000-4000-8000-000000000303', '00000000-0000-4000-8000-000000000201', '00000000-0000-4000-8000-000000000001', 'BOX-T3', 'Box de prueba 3 (origen)', true);
+insert into public.service_points (id, campus_id, sector_id, code, name, active) values
+  ('00000000-0000-4000-8000-000000000302', '00000000-0000-4000-8000-000000000201', '00000000-0000-4000-8000-000000000001', 'BOX-T2', 'Box de prueba 2 (con solo historico)', true),
+  ('00000000-0000-4000-8000-000000000303', '00000000-0000-4000-8000-000000000201', '00000000-0000-4000-8000-000000000001', 'BOX-T3', 'Box de prueba 3 (origen)', true);
 
 insert into public.turns (id, tracking_code, queue_date, sequence_number, visible_number, sector_id, category_id, status, service_point_id, called_at, operator_id)
 values ('00000000-0000-4000-8000-000000000904', 'REPRO-XFER-SRC', current_date, 4, 'TEST-XFER-1', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000101', 'llamado', '00000000-0000-4000-8000-000000000303', now(), '00000000-0000-4000-8000-000000000801');
@@ -147,7 +148,7 @@ delete from public.auth_sessions where id='00000000-0000-4000-8000-000000000802'
 delete from public.user_sector_memberships where user_id='00000000-0000-4000-8000-000000000801';
 delete from public.app_users where id='00000000-0000-4000-8000-000000000801';
 delete from public.turns where id in ('00000000-0000-4000-8000-000000000904','00000000-0000-4000-8000-000000000905');
-delete from public.service_points where id='00000000-0000-4000-8000-000000000303';
+delete from public.service_points where id in ('00000000-0000-4000-8000-000000000302','00000000-0000-4000-8000-000000000303');
 
 -- limpieza de este test especifico
 delete from public.turns where id in (
