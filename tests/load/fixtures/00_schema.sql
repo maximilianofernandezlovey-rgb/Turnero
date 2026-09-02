@@ -346,6 +346,28 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.api_call_next_category(p_token text, p_sector_id uuid, p_category_id uuid, p_service_point_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare su record; t public.turns%rowtype; sp public.service_points%rowtype;
+begin
+ select * into su from private.session_user(p_token);
+ if su.user_id is null or not private.can_access_sector(su.user_id,su.role,p_sector_id) then raise exception 'Acceso denegado'; end if;
+ if not exists(select 1 from public.categories where id=p_category_id and sector_id=p_sector_id and active) then raise exception 'Categoría inválida'; end if;
+ select * into sp from public.service_points where id=p_service_point_id and sector_id=p_sector_id and active;
+ if sp.id is null then raise exception 'Seleccioná un box válido'; end if;
+ if exists(select 1 from public.turns where service_point_id=sp.id and queue_date=current_date and status in('llamado','en_atencion')) then raise exception 'Ese box ya tiene un turno activo'; end if;
+ select * into t from public.turns where sector_id=p_sector_id and category_id=p_category_id and queue_date=current_date and status='esperando' order by priority desc,created_at for update skip locked limit 1;
+ if t.id is null then return null; end if;
+ update public.turns set status='llamado',called_at=clock_timestamp(),operator_id=su.user_id,service_point_id=sp.id where id=t.id returning * into t;
+ insert into public.turn_events(turn_id,sector_id,event_type,from_status,to_status,user_id,metadata) values(t.id,t.sector_id,'called_category','esperando','llamado',su.user_id,jsonb_build_object('service_point_id',sp.id,'service_point',sp.name,'category_id',p_category_id));
+ return jsonb_build_object('id',t.id,'visible_number',t.visible_number,'status',t.status,'category',(select name from public.categories where id=t.category_id),'service_point',sp.name,'tracking_code',t.tracking_code);
+end;
+$function$;
+
 grant usage on schema public to anon, authenticated;
 grant execute on function public.api_create_turn(uuid,uuid,text) to anon, authenticated;
 grant execute on function public.api_get_turn_v2(text) to anon, authenticated;
