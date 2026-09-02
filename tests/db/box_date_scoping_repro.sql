@@ -10,6 +10,7 @@
 --
 -- Corre SOLO contra el Postgres efimero de este workflow. Requiere que
 -- 00_schema.sql y 01_seed_synthetic.sql ya se hayan aplicado.
+-- (disparo manual: 00_schema.sql ahora incluye api_call_next_category)
 
 \set ON_ERROR_STOP off
 
