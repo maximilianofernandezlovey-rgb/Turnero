@@ -97,9 +97,9 @@ jobs:
 
       - name: "[CONCURRENCIA] Dos operadores llaman al MISMO box a la vez (indice ya corregido)"
         run: |
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-a','00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000101'::uuid,'00000000-0000-4000-8000-000000000301'::uuid);" > /tmp/concur_a.log 2>&1 &
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-a'::text,'00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000101'::uuid,'00000000-0000-4000-8000-000000000301'::uuid);" > /tmp/concur_a.log 2>&1 &
           pid_a=$!
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-b','00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000101'::uuid,'00000000-0000-4000-8000-000000000301'::uuid);" > /tmp/concur_b.log 2>&1 &
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_next_category('concur-token-b'::text,'00000000-0000-4000-8000-000000000001'::uuid,'00000000-0000-4000-8000-000000000101'::uuid,'00000000-0000-4000-8000-000000000301'::uuid);" > /tmp/concur_b.log 2>&1 &
           pid_b=$!
           ec_a=0; wait $pid_a || ec_a=$?
           ec_b=0; wait $pid_b || ec_b=$?
