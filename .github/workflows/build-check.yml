@@ -1,0 +1,50 @@
+# .github/workflows/build-check.yml
+#
+# Chequeo de build/TypeScript, sin Supabase ni Docker -- confirma que el
+# codigo de la app sigue compilando limpio despues del trabajo de esta
+# rama (que hasta ahora fue 100% base de datos: migracion 0005 + fixtures
+# de test, ningun archivo de la app tocado).
+
+name: Build check (sin DB)
+
+on:
+  push:
+    branches: [ci/free-local-loadtest]
+    paths:
+      - '.github/workflows/build-check.yml'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+  workflow_dispatch: {}
+
+concurrency:
+  group: build-check
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Node fijo
+        uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "20.18.0"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: npm run build
+        run: npm run build
+
+      - name: TypeScript --noEmit
+        run: npx tsc --noEmit
