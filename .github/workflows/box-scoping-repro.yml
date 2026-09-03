@@ -78,6 +78,12 @@ jobs:
       - name: "[REPRO] Ejecutar reproduccion + fix + verificacion"
         run: psql "$DB_URL" -f tests/db/box_date_scoping_repro.sql
 
+      - name: "[EXPIRE] Aplicar migracion 0006 (funcion + vista + pg_cron)"
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/0006_expire_stale_turns.sql
+
+      - name: "[EXPIRE] Ejecutar verificacion: solo jornadas anteriores, idempotencia, auditoria, vista de revision"
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/db/expire_stale_turns_repro.sql
+
       - name: "[CONCURRENCIA] Preparar 2 operadores + 2 turnos esperando"
         run: |
           psql "$DB_URL" -v ON_ERROR_STOP=1 << 'SQL'
