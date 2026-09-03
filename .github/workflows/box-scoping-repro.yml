@@ -63,6 +63,9 @@ jobs:
       - name: supabase start
         run: supabase start
 
+      - name: Restaurar supabase/migrations (para poder aplicar 0006 mas abajo por su ruta real)
+        run: mv supabase/migrations.disabled-for-ci supabase/migrations
+
       - name: Volcar status a variables de entorno
         run: |
           supabase status -o env | tee /tmp/status.env
