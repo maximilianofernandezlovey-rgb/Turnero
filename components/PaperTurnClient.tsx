@@ -11,6 +11,7 @@ type Turn={visible_number?:string;tracking_code?:string};
 
 const order=["inscripcion","informes","equivalencias-externas"];
 const allowed=new Set(order);
+const displayName=(c:Category)=>c.slug==="informes"?"Informes generales":c.name;
 
 export default function PaperTurnClient({onDone}:{onDone?:()=>void}){
  const [catalog,setCatalog]=useState<Catalog|null>(null),[turn,setTurn]=useState<Turn|null>(null),[loading,setLoading]=useState(true),[creating,setCreating]=useState(""),[error,setError]=useState("");
@@ -33,7 +34,7 @@ export default function PaperTurnClient({onDone}:{onDone?:()=>void}){
    <div className="category-buttons">
      {categories.map(c=><button className="category" key={c.id} disabled={!!creating} onClick={()=>create(c)}>
        <span className="pill">{c.prefix}</span><br/><br/>
-       <strong>{c.name}</strong>
+       <strong>{displayName(c)}</strong>
        <div className="muted" style={{marginTop:8}}>{creating===c.id?'Generando turno…':'Tocar para obtener turno'}</div>
      </button>)}
    </div>
