@@ -1,0 +1,142 @@
+# .github/workflows/operator-concurrency-repro.yml
+#
+# Bloque 2: concurrencia real entre operadores. Solo Postgres efimero
+# local -- no toca produccion, no usa Next.js.
+
+name: Operator concurrency repro
+
+on:
+  push:
+    branches: [ci/free-local-loadtest]
+    paths:
+      - 'tests/db/operator_concurrency_repro.sql'
+      - 'tests/load/fixtures/00_schema.sql'
+      - '.github/workflows/operator-concurrency-repro.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: operator-concurrency-repro
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Instalar Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.20.3
+
+      - name: Generar config.toml minimo
+        run: |
+          mkdir -p supabase
+          if [ ! -f supabase/config.toml ]; then
+          cat > supabase/config.toml <<'EOF'
+          project_id = "turnero-opconc-ci"
+          [api]
+          enabled = true
+          port = 54321
+          [db]
+          port = 54322
+          [studio]
+          enabled = false
+          [auth]
+          enabled = true
+          site_url = "http://127.0.0.1:3000"
+          [storage]
+          enabled = false
+          [realtime]
+          enabled = false
+          [inbucket]
+          enabled = false
+          EOF
+          fi
+
+      - name: Deshabilitar auto-aplicado de supabase/migrations
+        run: mv supabase/migrations supabase/migrations.disabled-for-ci
+
+      - name: supabase start
+        run: supabase start
+
+      - name: Restaurar supabase/migrations
+        run: mv supabase/migrations.disabled-for-ci supabase/migrations
+
+      - name: Volcar status a variables de entorno
+        run: |
+          supabase status -o env | tee /tmp/status.env
+          sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' /tmp/status.env > /tmp/status.clean.env
+          cat /tmp/status.clean.env >> "$GITHUB_ENV"
+
+      - name: Aplicar fixture de esquema
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/00_schema.sql
+
+      - name: Aplicar seed sintetico
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/load/fixtures/01_seed_synthetic.sql
+
+      - name: Setup del escenario (1 turno, 2 operadores, 2 boxes)
+        run: psql "$DB_URL" -v ON_ERROR_STOP=1 -f tests/db/operator_concurrency_repro.sql
+
+      - name: "[A] Dos operadores llaman al MISMO turno especifico, a la vez"
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_specific_turn('concur2-token-a'::text,'00000000-0000-4000-8000-000000000930'::uuid,'00000000-0000-4000-8000-000000000401'::uuid);" > /tmp/a_call.log 2>&1 &
+          pid_a=$!
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_call_specific_turn('concur2-token-b'::text,'00000000-0000-4000-8000-000000000930'::uuid,'00000000-0000-4000-8000-000000000402'::uuid);" > /tmp/b_call.log 2>&1 &
+          pid_b=$!
+          ec_a=0; wait $pid_a || ec_a=$?
+          ec_b=0; wait $pid_b || ec_b=$?
+          echo "exit_code_a=$ec_a exit_code_b=$ec_b"
+          echo "--- resultado A ---"; cat /tmp/a_call.log
+          echo "--- resultado B ---"; cat /tmp/b_call.log
+          echo "--- estado real del turno tras la llamada concurrente ---"
+          psql "$DB_URL" -t -c "select status, service_point_id, operator_id from turns where id='00000000-0000-4000-8000-000000000930';"
+
+      - name: "[B] Doble click en iniciar atencion (start), sobre el turno ya llamado"
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_turn_action('concur2-token-a'::text,'00000000-0000-4000-8000-000000000930'::uuid,'start'::text);" > /tmp/a_start.log 2>&1 &
+          pid_a=$!
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_turn_action('concur2-token-b'::text,'00000000-0000-4000-8000-000000000930'::uuid,'start'::text);" > /tmp/b_start.log 2>&1 &
+          pid_b=$!
+          ec_a=0; wait $pid_a || ec_a=$?
+          ec_b=0; wait $pid_b || ec_b=$?
+          echo "exit_code_a=$ec_a exit_code_b=$ec_b"
+          echo "--- resultado A ---"; cat /tmp/a_start.log
+          echo "--- resultado B ---"; cat /tmp/b_start.log
+          echo "--- cuantas veces se seteo started_at (debe ser 1 evento start en turn_events) ---"
+          psql "$DB_URL" -t -c "select count(*) from turn_events where turn_id='00000000-0000-4000-8000-000000000930' and event_type='start';"
+          psql "$DB_URL" -t -c "select status, started_at from turns where id='00000000-0000-4000-8000-000000000930';"
+
+      - name: "[C] Doble click en finalizar (finish), sobre el turno ya en atencion"
+        run: |
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_turn_action('concur2-token-a'::text,'00000000-0000-4000-8000-000000000930'::uuid,'finish'::text);" > /tmp/a_finish.log 2>&1 &
+          pid_a=$!
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -c "select api_turn_action('concur2-token-b'::text,'00000000-0000-4000-8000-000000000930'::uuid,'finish'::text);" > /tmp/b_finish.log 2>&1 &
+          pid_b=$!
+          ec_a=0; wait $pid_a || ec_a=$?
+          ec_b=0; wait $pid_b || ec_b=$?
+          echo "exit_code_a=$ec_a exit_code_b=$ec_b"
+          echo "--- resultado A ---"; cat /tmp/a_finish.log
+          echo "--- resultado B ---"; cat /tmp/b_finish.log
+          echo "--- cuantas veces se registro finish (debe ser 1) ---"
+          psql "$DB_URL" -t -c "select count(*) from turn_events where turn_id='00000000-0000-4000-8000-000000000930' and event_type='finish';"
+          psql "$DB_URL" -t -c "select status, finished_at from turns where id='00000000-0000-4000-8000-000000000930';"
+
+      - name: Limpieza
+        if: always()
+        run: |
+          psql "$DB_URL" -c "delete from turn_events where turn_id='00000000-0000-4000-8000-000000000930';" || true
+          psql "$DB_URL" -c "delete from turns where id='00000000-0000-4000-8000-000000000930';" || true
+          psql "$DB_URL" -c "delete from auth_sessions where id in ('00000000-0000-4000-8000-000000000413','00000000-0000-4000-8000-000000000414');" || true
+          psql "$DB_URL" -c "delete from user_sector_memberships where user_id in ('00000000-0000-4000-8000-000000000411','00000000-0000-4000-8000-000000000412');" || true
+          psql "$DB_URL" -c "delete from app_users where id in ('00000000-0000-4000-8000-000000000411','00000000-0000-4000-8000-000000000412');" || true
+          psql "$DB_URL" -c "delete from service_points where id in ('00000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-000000000402');" || true
+
+      - name: supabase stop
+        if: always()
+        run: supabase stop --no-backup || true
