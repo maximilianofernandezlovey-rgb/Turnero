@@ -410,6 +410,36 @@ begin
 end;
 $function$;
 
+-- Replica el estado REAL y actual de produccion (vulnerable, RLS
+-- deshabilitado) para poder reproducir el hallazgo P0 antes de aplicar
+-- el fix 0007.
+create table public.turn_feedback (
+  id uuid primary key default extensions.gen_random_uuid(),
+  turn_id uuid not null,
+  rating smallint,
+  comment text,
+  contact_email text,
+  created_at timestamptz not null default now()
+);
+
+create table public.turn_service_closures (
+  id uuid primary key default extensions.gen_random_uuid(),
+  turn_id uuid not null,
+  operator_id uuid,
+  career_interest text,
+  residence_interest boolean,
+  scholarship_interest boolean,
+  operator_comment text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  academic_program_id uuid
+);
+
+grant select, insert, update, delete, truncate, references, trigger
+  on public.turn_feedback to anon, authenticated;
+grant select, insert, update, delete, truncate, references, trigger
+  on public.turn_service_closures to anon, authenticated;
+
 grant usage on schema public to anon, authenticated;
 grant execute on function public.api_create_turn(uuid,uuid,text) to anon, authenticated;
 grant execute on function public.api_get_turn_v2(text) to anon, authenticated;
