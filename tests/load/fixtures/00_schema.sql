@@ -368,6 +368,48 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.api_call_specific_turn(p_token text, p_turn_id uuid, p_service_point_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare su record; t public.turns%rowtype; sp public.service_points%rowtype;
+begin
+ select * into su from private.session_user(p_token); if su.user_id is null then raise exception 'Sesión inválida'; end if;
+ select * into t from public.turns where id=p_turn_id for update;
+ if t.id is null or t.status<>'esperando' or not private.can_access_sector(su.user_id,su.role,t.sector_id) then raise exception 'El turno ya no está disponible'; end if;
+ select * into sp from public.service_points where id=p_service_point_id and sector_id=t.sector_id and active;
+ if sp.id is null then raise exception 'Box inválido'; end if;
+ if exists(select 1 from public.turns where service_point_id=sp.id and queue_date=current_date and status in('llamado','en_atencion')) then raise exception 'Ese box ya tiene un turno activo'; end if;
+ update public.turns set status='llamado',called_at=clock_timestamp(),operator_id=su.user_id,service_point_id=sp.id where id=t.id returning * into t;
+ insert into public.turn_events(turn_id,sector_id,event_type,from_status,to_status,user_id,metadata) values(t.id,t.sector_id,'manual_call','esperando','llamado',su.user_id,jsonb_build_object('service_point_id',sp.id,'service_point',sp.name));
+ return jsonb_build_object('id',t.id,'visible_number',t.visible_number,'status',t.status,'category',(select name from public.categories where id=t.category_id),'service_point',sp.name,'tracking_code',t.tracking_code);
+end;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.api_turn_action(p_token text, p_turn_id uuid, p_action text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+declare su record; t public.turns%rowtype; old text;
+begin
+ select * into su from private.session_user(p_token); if su.user_id is null then raise exception 'Sesión inválida'; end if;
+ select * into t from public.turns where id=p_turn_id for update; if t.id is null or not private.can_access_sector(su.user_id,su.role,t.sector_id) then raise exception 'Acceso denegado'; end if; old:=t.status;
+ if p_action='recall' and t.status='llamado' then update public.turns set called_at=clock_timestamp() where id=t.id;
+ elsif p_action='start' and t.status='llamado' then update public.turns set status='en_atencion',started_at=coalesce(started_at,clock_timestamp()),operator_id=su.user_id where id=t.id;
+ elsif p_action='finish' and t.status='en_atencion' then update public.turns set status='finalizado',finished_at=clock_timestamp() where id=t.id;
+ elsif p_action='absent' and t.status in('llamado','en_atencion') then update public.turns set status='ausente',finished_at=clock_timestamp() where id=t.id;
+ elsif p_action='cancel' and t.status not in('finalizado','cancelado','ausente','transferido') then update public.turns set status='cancelado',finished_at=clock_timestamp() where id=t.id;
+ else raise exception 'Acción no válida para el estado actual'; end if;
+ select * into t from public.turns where id=p_turn_id;
+ insert into public.turn_events(turn_id,sector_id,event_type,from_status,to_status,user_id) values(t.id,t.sector_id,p_action,old,t.status,su.user_id);
+ return jsonb_build_object('id',t.id,'visible_number',t.visible_number,'status',t.status,'called_at',t.called_at,'started_at',t.started_at,'finished_at',t.finished_at);
+end;
+$function$;
+
 grant usage on schema public to anon, authenticated;
 grant execute on function public.api_create_turn(uuid,uuid,text) to anon, authenticated;
 grant execute on function public.api_get_turn_v2(text) to anon, authenticated;
